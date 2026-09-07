@@ -1,0 +1,6 @@
+venv/
+logs/
+.env
+__pycache__/
+*.eval
+reference/public-tasks/
