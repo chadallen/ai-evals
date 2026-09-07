@@ -4,3 +4,4 @@ logs/
 __pycache__/
 *.eval
 reference/public-tasks/
+reference/inspect-evals/
