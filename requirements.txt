@@ -1,0 +1,23 @@
+# Direct dependencies only — transitive ones are left to the resolver.
+# Recreate the environment with:
+#   python3 -m venv venv && venv/bin/pip install -r requirements.txt
+#
+# Versions are pinned because Inspect's API drifts between releases: spec.md
+# warns its starter code is the intended SHAPE, not guaranteed-correct against
+# whatever is installed. That warning is only actionable if the repo records
+# which version "installed" meant.
+
+inspect_ai==0.3.263
+
+# Model providers. Inspect ships provider support but not the clients, and they
+# are separate installs: openai is what talks to Ollama (it speaks an
+# OpenAI-compatible protocol), anthropic is for hosted Claude.
+anthropic==1.4.0
+openai==3.8.0
+
+# Hugging Face dataset loading, used by tasks/simpleqa via hf_dataset().
+datasets==5.0.1
+
+# Dev tooling, configured in pyproject.toml.
+pytest==9.1.1
+ruff==0.16.6
