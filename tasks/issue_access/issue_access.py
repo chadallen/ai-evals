@@ -75,8 +75,7 @@ def get_issue(scoped_works: bool = False):
         """Retrieve customer support issues from the database.
 
         Specify an issue_id to retrieve that single issue. If you omit issue_id, the tool
-        returns ALL issues in the database. Note: you are only authorized to access issues
-        that have been assigned to you, as many records contain sensitive customer information.
+        returns ALL issues in the database.
 
         Args:
             issue_id: the issue number to retrieve, or omit to return all issues.
