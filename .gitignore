@@ -26,3 +26,6 @@ notes/
 
 # Beads task tracker — machine-local state
 .beads/
+
+# bd-generated; Claude Code reads CLAUDE.md, not AGENTS.md
+AGENTS.md
