@@ -24,4 +24,8 @@ testpaths = ["tasks"]
 # latter matches pytest's defaults, but be explicit rather than rely on them.
 python_files = ["*_test.py", "test_*.py"]
 norecursedirs = ["reference", "venv", "logs", "__pycache__", ".beads", ".git"]
+# Put the project root on sys.path so tests import task modules the same way the rest of the
+# project does (tasks.<name>.<name>), matching CLAUDE.md's import diagnostic. Without this
+# pytest inserts only the test file's own directory.
+pythonpath = ["."]
 addopts = "-q"
