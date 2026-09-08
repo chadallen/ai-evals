@@ -23,3 +23,6 @@ notes/
 .dolt/
 *.db
 .beads-credential-key
+
+# Beads task tracker — machine-local state
+.beads/
