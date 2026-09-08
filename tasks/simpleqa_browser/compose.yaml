@@ -1,0 +1,16 @@
+services:
+  default:
+    # Pre-built AISI image with Playwright/Chromium and inspect-tool-support
+    # already installed. Avoids building Playwright from source on arm64.
+    image: aisiuk/inspect-tool-support
+    init: true
+
+    # network_mode is deliberately OMITTED so the browser can reach the
+    # internet. Contrast gdm_intercode_ctf, which sets `network_mode: none`
+    # to guarantee reproducibility. We are trading that away on purpose.
+    #
+    # The container is still the blast-radius boundary: the agent cannot
+    # touch the host filesystem, ~/.ssh, .env, or the host's Chrome profile.
+
+    mem_limit: 4g
+    cpus: 2.0
