@@ -3,5 +3,15 @@ logs/
 .env
 __pycache__/
 *.eval
-reference/public-tasks/
-reference/inspect-evals/
+# All of reference/ is cloned or downloaded study material — reproducible,
+# large, and not ours. Nothing in here is worth tracking.
+reference/
+
+# Personal scratch notes, explicitly marked "not for agents"
+user-notes.md
+
+# Contains personal career/strategy notes — keep out of the repo
+CLAUDE.md
+
+# macOS
+.DS_Store
