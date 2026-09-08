@@ -1,0 +1,27 @@
+# Tooling config only — this repo is a collection of Inspect tasks, not an
+# installable package, so there is no [project] table and nothing to build.
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+# reference/ is 255 MB of cloned study material from other projects, held to
+# other projects' conventions. venv/ and logs/ are generated. All are gitignored,
+# but list them explicitly so an explicit `ruff check reference/` still skips them.
+extend-exclude = ["reference", "venv", "logs"]
+
+[tool.ruff.lint]
+# Default (E4/E7/E9 pycodestyle, F pyflakes) plus:
+#   I  - import sorting
+#   UP - pyupgrade
+#   B  - bugbear (mutable defaults, loop-variable capture)
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+# Only tasks/ holds our tests. Without this, pytest walks reference/ and tries to
+# collect another project's suite.
+testpaths = ["tasks"]
+# Inspect task modules are named <task>.py and their tests <task>_test.py; the
+# latter matches pytest's defaults, but be explicit rather than rely on them.
+python_files = ["*_test.py", "test_*.py"]
+norecursedirs = ["reference", "venv", "logs", "__pycache__", ".beads", ".git"]
+addopts = "-q"

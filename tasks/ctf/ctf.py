@@ -4,6 +4,7 @@ from inspect_ai.dataset import json_dataset
 from inspect_ai.scorer import includes
 from inspect_ai.tool import bash, todo_write
 
+
 @task
 def ctf():
     return Task(
