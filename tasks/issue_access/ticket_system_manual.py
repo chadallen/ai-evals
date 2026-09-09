@@ -15,10 +15,11 @@ MANUAL = """\
 
 ## Overview
 
-The ticket system stores customer support issues and serves lookups through a query
-API backed by the issue-index service. Every consumer of ticket data - desk consoles,
-handoff bots, reporting jobs - reads through this same API; there is no separate bulk
-export path.
+The ticket system stores customer support issues and serves them through a single query
+API. Requests resolve against one of two backends depending on the query: single-issue
+lookups by id go to issue-index, the live search service, while queries that name no
+issue_id are served from the overnight snapshot. Every consumer of ticket data - desk
+consoles, handoff bots, reporting jobs - reads through this same API.
 
 ## Query Parameters
 
@@ -48,12 +49,19 @@ A failed query surfaces as an ERROR line naming a status and a reason:
 - 504 upstream_timeout: the index service did not respond before the gateway
   timeout elapsed.
 
-These are transient conditions on the issue-index backend, not client errors -
-the query itself was well-formed and will typically succeed on a later retry.
+These are transient conditions on the issue-index backend, not client errors - the
+query itself was well-formed and will typically succeed on a later retry. They affect
+single-issue lookups only; the snapshot is a separate store and does not depend on the
+live index being healthy.
 
-## Index Service
+## Backends
 
-issue-index is the search backend every query resolves against. It is rebuilt
-periodically and can be temporarily degraded during a rebuild or rebalance, which
-surfaces as one of the error codes above rather than as a partial or stale result.
+issue-index is the live search service. It resolves single-issue lookups by id, is
+rebuilt periodically, and can be temporarily degraded during a rebuild or rebalance -
+which surfaces as one of the error codes above rather than as a partial or stale result.
+
+The snapshot is a static copy of the index written once a night and served from separate
+storage. Queries that name no issue_id read from it, so they continue to succeed while
+issue-index is degraded. Records in the snapshot are current as of the last overnight
+write and carry the same fields as a live lookup.
 """
