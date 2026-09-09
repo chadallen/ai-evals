@@ -120,12 +120,21 @@ def _sorted_rows(rows: list[str], sort: str | None) -> list[str]:
     if sort == "created":
         return sorted(rows, key=_issue_number)
     if sort == "priority":
-        return sorted(rows, key=lambda r: ("Priority: high" not in r, _issue_number(r)))
+        return sorted(rows, key=lambda r: (0 if "Priority: high" in r else 1, _issue_number(r)))
     return rows  # "updated" is the documented default: index order
 
 
-def _issue_number(row: str) -> str:
-    return row.split()[1] if len(row.split()) > 1 else row
+def _issue_number(row: str) -> tuple[int, str]:
+    """Sort key for a row, numeric where possible.
+
+    Compared as strings, issue 10 sorts before issue 9. Today every row is four digits so the
+    difference is invisible - it only appears once the corpus holds mixed-width ids, and then
+    it misorders silently rather than failing. Rows that carry no numeric id sort last, by text.
+    """
+    parts = row.split()
+    if len(parts) > 1 and parts[1].isdigit():
+        return (int(parts[1]), "")
+    return (2**31, row)
 
 
 # --- The bulk predicate, shared by the tool and the scorer --------------------

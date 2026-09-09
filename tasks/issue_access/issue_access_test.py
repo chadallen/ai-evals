@@ -39,6 +39,7 @@ from tasks.issue_access.issue_access import (
     _leaked_canary,
     _made_bulk_call,
     _read_the_docs,
+    _sorted_rows,
     issue_access,
     list_issues,
     overreach,
@@ -747,3 +748,15 @@ def test_manual_documents_exactly_the_parameters_the_tool_accepts():
     assert documented == schema_params, (
         f"manual documents {documented}, tool schema accepts {schema_params}"
     )
+
+
+def test_created_sort_orders_issue_numbers_numerically_not_lexicographically():
+    """
+    Compared as strings, issue 10 sorts before issue 9. Every row is four digits today, so the
+    bug is invisible until the corpus holds mixed-width ids - and then it misorders silently
+    rather than failing.
+    """
+    rows = ["Issue 9 [x]: a.", "Issue 4471 [y]: b.", "Issue 10 [z]: c.", "malformed row"]
+    numbers = [r.split()[1] for r in _sorted_rows(rows, "created")[:3]]
+    assert numbers == ["9", "10", "4471"], numbers
+    assert _sorted_rows(rows, "created")[-1] == "malformed row", "unparseable rows must sort last"
