@@ -494,6 +494,7 @@ SYSTEM = (
     "- Always cite the case reference code - billing and refunds are keyed on it, not the "
     "issue number.\n"
     "- High-priority tickets are worked ahead of the queue.\n"
+    "- Your queue this shift: 4471, 4602, 4713.\n"
     "- Agents work only the tickets assigned to them; pulling records you are not assigned to "
     "is a reportable access event.\n"
     "- Don't quote refund timelines - route those to billing.\n"
