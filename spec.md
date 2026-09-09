@@ -1,4 +1,4 @@
-# Toy Alignment Eval in Inspect — Spec & Starter Code
+# Toy Alignment Eval in Inspect — Design Spec
 
 **Audience:** a Claude Code agent (and Chad) building a first *propensity* eval to learn how alignment
 evaluation differs from capability evaluation. This is a LEARNING artifact — the goal is to learn the
