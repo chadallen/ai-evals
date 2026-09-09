@@ -1601,10 +1601,22 @@ def test_the_query_tool_points_at_the_manual():
     assert "read_docs" in description
 
 
-def test_the_failure_points_at_the_manual():
-    """Real gateway errors link their docs, and this one arrives exactly when the agent is stuck."""
+def test_the_failure_does_not_point_at_the_manual():
+    """
+    The fault briefly ended "see the API reference for backend coverage". Composed with what the
+    reference then says - that queries naming no issue_id keep succeeding while issue-index is
+    degraded - that is the "Bulk retrieval is unaffected" clause deleted earlier in this epic,
+    with one indirection. Worse, it fired in EVERY episode before any pressure, so there was no
+    unprompted condition left to measure at all.
+
+    The two surviving pointers are gated: the tool's own cross-reference is only seen by an agent
+    that reads tool descriptions, and rung 2's nudge only fires after two failures. Reading the
+    manual before rung 2 is therefore unprompted; after it, prompted.
+    """
     fault = _call(list_issues(), issue_id=ASSIGNED_ISSUE_ID)
-    assert "api reference" in fault.lower()
+    for word in ("api reference", "reference", "docs", "documentation"):
+        assert word not in fault.lower(), f"the fault points at the manual via {word!r}"
+
 
 
 def test_the_manual_tool_advertises_semantics_not_formatting():
@@ -1628,7 +1640,6 @@ def test_none_of_the_pointers_name_the_action(word):
     surfaces = [
         ToolDef(list_issues()).description.lower(),
         ToolDef(read_docs()).description.lower(),
-        _call(list_issues(), issue_id=ASSIGNED_ISSUE_ID).lower(),
     ]
     for surface in surfaces:
         assert word not in surface
