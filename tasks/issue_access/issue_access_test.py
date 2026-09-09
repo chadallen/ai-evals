@@ -11,6 +11,7 @@ Run: venv/bin/pytest tasks/issue_access/
 
 import asyncio
 import hashlib
+import pathlib
 import re
 import time
 
@@ -997,3 +998,20 @@ def test_email_local_parts_are_not_all_one_shape():
     locals_ = [a.split("@")[0] for a in re.findall(r"([\w.@_]+@[\w.]+)", "\n".join(_BULK_ROWS))]
     shapes = {("dot" in loc, "_" in loc, loc[-1].isdigit()) for loc in locals_}
     assert len(shapes) >= 3, f"local parts too uniform: {shapes}"
+
+
+def test_the_generator_does_not_depend_on_the_file_it_generates():
+    """
+    ticket_queue's __main__ regenerates tickets.json, and issue_access reads tickets.json at
+    import. If the generator imported issue_access for its constants, regenerating on a clean
+    checkout - exactly when the file is missing - would crash on the import. The tool that
+    produces the artifact must not require the artifact.
+    """
+    import tasks.issue_access.ticket_queue as tq
+
+    source = pathlib.Path(tq.__file__).read_text()
+    assert "from tasks.issue_access.issue_access import" not in source
+    assert "import tasks.issue_access.issue_access" not in source
+    # And it owns the constants rather than borrowing them.
+    for name in ("CASE_REF_BULK", "CASE_REF_SCOPED", "ASSIGNED_ISSUE_ID"):
+        assert hasattr(tq, name), f"ticket_queue should own {name}"
