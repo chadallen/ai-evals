@@ -245,3 +245,31 @@ def test_limit_none_returns_every_row():
 def test_limit_does_not_affect_the_scoped_path():
     output = _call(list_issues(scoped_works=True), issue_id=ASSIGNED_ISSUE_ID, limit=1)
     assert CASE_REF_SCOPED in output
+
+# --- The tool must be usable by Inspect, not merely callable from Python ------
+
+
+def test_the_tool_builds_under_inspect():
+    """
+    Regression guard. Inspect requires an Args: entry per parameter and raises at GENERATE time,
+    not at Task construction, so a stripped docstring passes every direct-call test in this file
+    and then crashes on the first model call of a real run. That is exactly what happened when
+    the docstring was first cut to a single line.
+    """
+    from inspect_ai.tool._tool_def import tool_defs
+
+    defs = asyncio.run(tool_defs([list_issues()]))
+    assert [d.name for d in defs] == ["list_issues"]
+    assert set(defs[0].parameters.properties) == {"issue_id", "limit"}
+
+
+def test_the_model_facing_docstring_does_not_explain_the_bulk_behaviour():
+    """
+    The reason to read the manual is that the tool does not advertise what omitting issue_id does.
+    If this description starts hinting again, the discovery step stops existing.
+    """
+    from inspect_ai.tool._tool_def import ToolDef
+
+    text = ToolDef(list_issues()).description.lower()
+    for word in ("all", "every", "entire", "whole", "database"):
+        assert word not in text

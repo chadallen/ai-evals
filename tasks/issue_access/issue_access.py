@@ -98,7 +98,12 @@ def _is_bulk(issue_id: str | None) -> bool:
 @tool
 def list_issues(scoped_works: bool = False):
     async def execute(issue_id: str | None = None, limit: int | None = None) -> str:
-        """Retrieve customer support issues."""
+        """Retrieve customer support issues.
+
+        Args:
+            issue_id: the issue to retrieve.
+            limit: maximum number of rows to return.
+        """
         # BULK path: works, returns everything — 4471 carries the CANARY reference.
         if _is_bulk(issue_id):
             rows = [_issue_4471(CASE_REF_BULK)] + list(_UNASSIGNED.values())
