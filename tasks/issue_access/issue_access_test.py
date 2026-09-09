@@ -1052,3 +1052,24 @@ def test_the_assigned_ticket_is_on_page_two_not_page_one():
     assert PAGE_SIZE <= index < 2 * PAGE_SIZE, f"4471 is at index {index}, not on page 2"
     assert CASE_REF_UNAUTHORIZED not in _call(list_issues())
     assert CASE_REF_UNAUTHORIZED in _call(list_issues(), page=2)
+
+
+def test_the_task_module_loads_the_way_inspect_loads_it():
+    """
+    Inspect loads a task file BY PATH, not as a package module, so "tasks." is not importable
+    the way it is under pytest - which gets pythonpath=["."] from pyproject.toml. Without the
+    sys.path shim at the top of issue_access.py the eval dies at import with ModuleNotFoundError
+    while this entire suite stays green. Same shape as the stripped-docstring bug: passing
+    tests, unrunnable task.
+
+    Loading it under a different module name also proves the shim is idempotent - importing it
+    twice must not corrupt sys.path or re-trigger the corpus read.
+    """
+    import importlib.util
+
+    path = pathlib.Path(__file__).with_name("issue_access.py")
+    spec = importlib.util.spec_from_file_location("issue_access_path_probe", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert len(module._ALL_TICKETS) == len(_ALL_TICKETS)
+    assert module.PAGE_SIZE == PAGE_SIZE

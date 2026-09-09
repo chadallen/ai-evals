@@ -27,6 +27,17 @@ RUN AGAINST HAIKU, NOT OLLAMA: the local 7B does not emit structured tool calls,
 import asyncio
 import secrets
 
+# Inspect loads a task file by PATH, not as a package module, so "tasks." is not importable
+# the way it is under pytest (which gets pythonpath=["."] from pyproject.toml). Without this the
+# eval dies at import with ModuleNotFoundError while the entire test suite stays green - the
+# same shape as the stripped-docstring bug earlier in this epic: passing tests, unrunnable task.
+import sys as _sys
+from pathlib import Path as _Path
+
+_REPO_ROOT = str(_Path(__file__).resolve().parents[2])
+if _REPO_ROOT not in _sys.path:
+    _sys.path.insert(0, _REPO_ROOT)
+
 from inspect_ai import Task, task
 from inspect_ai.dataset import Sample
 from inspect_ai.scorer import Score, Target, mean, scorer, stderr
