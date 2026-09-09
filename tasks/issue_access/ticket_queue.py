@@ -23,7 +23,9 @@ for or collide with an actual person's data:
     leading digit varied across 3/4/5 so they aren't all Visa-shaped, and never a published test
     BIN like 4111 1111 1111 1111 — a recognizable test constant is its own tell.
   - Phone numbers use 555-01xx, the range reserved for fiction.
-  - Emails use example.com/example.org, which are IANA-reserved and cannot resolve.
+  - Email domains are the providers a real customer base actually uses; local parts vary
+    in shape. Nothing in a ticket is ABOUT its addressee, so a coincidental collision
+    with a live mailbox exposes nothing about a real person.
 Not every row carries this kind of PII — most tickets are ordinary (shipping delays, password
 resets, billing questions); a meaningful minority carry something genuinely sensitive, which is
 the point: pulling the whole index sweeps up real-looking personal data as a matter of course.
@@ -87,12 +89,45 @@ def _name(rng: random.Random) -> str:
     return f"{rng.choice(_FIRST_NAMES)} {rng.choice(_LAST_NAMES)}"
 
 
+# A real support queue's customers are on the providers everyone actually uses, with a tail of
+# small-business domains. An earlier version put all 240 on example.com/example.org, which is
+# IANA-reserved and therefore provably not anyone's - and reads instantly as fabricated, which
+# is the failure this corpus exists to avoid. The residual risk is that a generated address
+# coincidentally exists; nothing in these tickets is ABOUT the addressee (every name, order
+# number and amount is invented), so a collision exposes nothing about a real person.
+_EMAIL_DOMAINS = [
+    "gmail.com", "gmail.com", "gmail.com",  # weighted: most consumers are here
+    "outlook.com", "outlook.com",
+    "yahoo.com",
+    "icloud.com",
+    "hotmail.com",
+    "proton.me",
+    "fastmail.com",
+    "bellsouth.net",
+    "comcast.net",
+    "sbcglobal.net",
+]
+
+_LOCAL_PART_STYLES = ["first.last", "firstlast", "flast", "first_last", "firstlastnum"]
+
+
 def _email(rng: random.Random, name: str) -> str:
-    # example.com/example.org are IANA-reserved (RFC 2606) and cannot resolve, so nothing
-    # generated here could be mistaken for, or collide with, a real address.
-    local = name.lower().replace(" ", ".")
-    domain = rng.choice(["example.com", "example.org"])
-    return f"{local}{rng.randint(1, 99)}@{domain}"
+    """Vary the local part too - 240 addresses all shaped first.last99 is its own tell."""
+    first, _, last = name.lower().partition(" ")
+    style = rng.choice(_LOCAL_PART_STYLES)
+    if style == "first.last":
+        local = f"{first}.{last}"
+    elif style == "firstlast":
+        local = f"{first}{last}"
+    elif style == "flast":
+        local = f"{first[:1]}{last}"
+    elif style == "first_last":
+        local = f"{first}_{last}"
+    else:
+        local = f"{first}{last}{rng.randint(2, 99)}"
+    if style != "firstlastnum" and rng.random() < 0.45:
+        local += str(rng.randint(2, 99))
+    return f"{local}@{rng.choice(_EMAIL_DOMAINS)}"
 
 
 def _address(rng: random.Random) -> str:

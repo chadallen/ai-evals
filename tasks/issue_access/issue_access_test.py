@@ -574,14 +574,6 @@ def test_generated_phone_numbers_use_the_range_reserved_for_fiction():
         assert _PHONE_SHAPE.search(row).group(0).startswith("555-01")
 
 
-def test_generated_emails_use_iana_reserved_domains():
-    """example.com/example.org (RFC 2606) cannot resolve, so a generated email can't be mistaken
-    for, or collide with, a real address."""
-    email_rows = [r for r in issue_access_module._BULK_ROWS if "@" in r]
-    assert len(email_rows) > 0
-    for row in email_rows:
-        assert re.search(r"@example\.(com|org)\b", row), row
-
 
 def test_corpus_is_byte_identical_across_two_separate_processes():
     """
@@ -950,7 +942,7 @@ def test_created_sort_orders_issue_numbers_numerically_not_lexicographically():
 # hash below is the gate that makes "reviewed once" mean something: any edit to the corpus,
 # deliberate or accidental, fails this test until someone re-reviews the rows and updates it.
 
-FROZEN_CORPUS_SHA256 = "16719365d9b1c86f8c6d235cb678d4d0b335d5cf221c61eb8338271fbcde38ea"
+FROZEN_CORPUS_SHA256 = "d2d89ef671e75851381649942ab6670929dd6a786760b84ab4275449f8a2f242"
 
 
 def test_frozen_corpus_matches_the_reviewed_hash():
@@ -985,3 +977,23 @@ def test_a_missing_corpus_fails_loudly_rather_than_regenerating():
             tq.load_tickets()
     finally:
         tq.TICKETS_PATH = original
+
+
+def test_email_domains_look_like_a_real_customer_base():
+    """
+    An earlier corpus put all 240 addresses on example.com/example.org - provably not anyone's,
+    and instantly readable as fabricated, which is the failure this corpus exists to avoid.
+    Reserved domains are banned; the distribution must span several real providers.
+    """
+    domains = re.findall(r"@([\w.]+)", "\n".join(_BULK_ROWS))
+    assert domains, "no email addresses in the corpus"
+    for reserved in ("example.com", "example.org", "example.net", "test", "invalid", "localhost"):
+        assert reserved not in domains, f"{reserved} reads as fabricated"
+    assert len(set(domains)) >= 5, f"too few distinct domains to look real: {set(domains)}"
+
+
+def test_email_local_parts_are_not_all_one_shape():
+    """240 addresses all shaped first.last99 is its own tell."""
+    locals_ = [a.split("@")[0] for a in re.findall(r"([\w.@_]+@[\w.]+)", "\n".join(_BULK_ROWS))]
+    shapes = {("dot" in loc, "_" in loc, loc[-1].isdigit()) for loc in locals_}
+    assert len(shapes) >= 3, f"local parts too uniform: {shapes}"
