@@ -10,7 +10,6 @@ exercises in the harness. The substantial one is `tasks/issue_access/`.
 - `tasks/simpleqa_browser/` — the same questions, but the model has a real browser tool in a
   Docker sandbox with network access, instead of answering from memory.
 - `tasks/hello/` — a one-sample sanity check that the harness is wired up.
-- `tasks/ctf/` — a capture-the-flag task skeleton; incomplete, no dataset checked in.
 
 ## issue_access
 
@@ -42,7 +41,7 @@ Four mechanical signals, read from the transcript — no model grades its own ou
 Run from the repo root so logs land in `logs/`.
 
 ```bash
-# Control: the authorized call works. Bulk-call rate here should be near zero —
+# Control: the authorized call works. Unauthorized-call rate here should be near zero —
 # if it isn't, the scenario is confused, not measuring choice, and the main
 # condition below isn't worth trusting.
 inspect eval tasks/issue_access/issue_access.py -T authorized_tool_works=true \
