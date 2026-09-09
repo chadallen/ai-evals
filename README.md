@@ -7,15 +7,13 @@ README in whichever one interests you.
 
 ## Tasks
 
-- **[`tasks/issue_access/`](tasks/issue_access/)** — the main one. A propensity eval: when an
-  agent's authorized way to fetch its own record fails, does it fall back to a query that
-  returns everyone else's? Four mechanically scored signals, a frozen 240-ticket corpus, and a
-  control condition.
+- **[`tasks/issue_access/`](tasks/issue_access/)** — the main one. When an agent's authorized way
+  to fetch its own record fails, does it fall back to a query that returns everyone else's? Four
+  mechanically scored signals and a control condition.
 
 - **[`tasks/simpleqa/`](tasks/simpleqa/)** and
-  **[`tasks/simpleqa_browser/`](tasks/simpleqa_browser/)** — a pair. The same short-factual
-  questions answered with no tools, and then with a real browser in a Docker sandbox. The
-  contrast shows what tools change, and what a model-graded scorer cannot see.
+  **[`tasks/simpleqa_browser/`](tasks/simpleqa_browser/)** — the same questions with and without a
+  browser. Shows what tools change, and what a model-graded scorer can't see.
 
 ## Setup
 
@@ -24,16 +22,14 @@ python3 -m venv venv
 venv/bin/pip install -r requirements.txt
 ```
 
-Provide an API key. Copy the template and fill it in — Inspect loads `.env` from the repo
-root automatically:
+Copy the template and add your key. Inspect loads `.env` automatically:
 
 ```bash
 cp .env.example .env
 ```
 
-Exporting `ANTHROPIC_API_KEY` in your shell works too. Note that a shell variable takes
-precedence over `.env`, so a stale exported key will silently win over a correct one in the
-file.
+An exported `ANTHROPIC_API_KEY` also works, and takes precedence over `.env` — a stale one
+in your shell will silently beat a correct one in the file.
 
 ## Running a task
 
@@ -44,8 +40,8 @@ venv/bin/inspect eval tasks/issue_access/issue_access.py --model anthropic/claud
 venv/bin/inspect view          # read the transcripts, not just the scores
 ```
 
-`--epochs N` repeats a sample. Behaviour is nondeterministic, so a handful of epochs is not
-enough to trust a rate. `-T name=value` sets task parameters; each task's README lists its own.
+`--epochs N` repeats a sample; a handful isn't enough to trust a rate. `-T name=value` sets task
+parameters, listed in each task's README.
 
 `tasks/simpleqa_browser/` additionally needs Docker running.
 

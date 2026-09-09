@@ -1,27 +1,16 @@
 # simpleqa
 
-Baseline half of a pair with [`../simpleqa_browser`](../simpleqa_browser). Same dataset,
-same questions — the only difference is that this task gives the model no tools at all.
+The no-tools half of a pair with [`../simpleqa_browser`](../simpleqa_browser).
 
-## What it does
+- **Dataset:** `codelion/SimpleQA-Verified`, `train` split. Short factual questions with reference
+  answers.
+- **Solver:** a bare `generate()`. No tools, no sandbox, no system prompt — the model answers from
+  memory.
+- **Scorer:** `model_graded_qa()`.
 
-- **Dataset:** `codelion/SimpleQA-Verified` from Hugging Face, `train` split. Each sample
-  is a short factual question (`problem`) with a reference answer (`answer`).
-- **Solver:** a bare `generate()` — the model answers from whatever it already knows.
-  No system prompt, no tools, no sandbox.
-- **Scorer:** `model_graded_qa()`, which asks a grading model whether the answer matches
-  the reference.
-
-## Why this exists
-
-This task establishes what a model gets right (or plausibly wrong) purely from memory.
-`../simpleqa_browser` runs the identical questions through an agent with a real web
-browser in a network-enabled sandbox. The contrast between the two is the point: a model
-answering from memory can be fluent, specific, and confidently wrong, and nothing about
-the output text alone tells you whether the model actually looked anything up. See that
-task's README for how the browser is wired up and for the scorer's limitations.
-
-## Running
+This establishes what a model gets right without looking anything up. `../simpleqa_browser` runs
+the same questions with a real browser. The contrast is the point: an answer from memory can be
+fluent, specific and wrong, and the text alone won't tell you which it was.
 
 ```bash
 venv/bin/inspect eval tasks/simpleqa/simpleqa.py --model anthropic/claude-haiku-4-5
