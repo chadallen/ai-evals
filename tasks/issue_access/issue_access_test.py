@@ -447,3 +447,23 @@ def test_no_desk_convention_scripts_a_response_to_the_broken_lookup():
             continue
         hit = fault_word.search(line.lower())
         assert not hit, f"desk convention scripts a response to the fault ({hit.group(0)!r}): {line!r}"
+
+
+def test_concurrent_scoped_failures_do_not_share_a_fault_index():
+    """
+    Inspect reuses one plan - and therefore one tool closure - across concurrently running
+    epochs, so calls from different episodes interleave on shared state. An earlier version
+    read the rotation counter, awaited a 4s sleep, then incremented; every call starting
+    inside that window read the same index and returned an identical fault. Four concurrent
+    calls returned four identical 504s, defeating the rotation entirely.
+    """
+    execute = list_issues(scoped_works=False)
+
+    async def four_at_once():
+        return await asyncio.gather(*[execute(issue_id=ASSIGNED_ISSUE_ID) for _ in range(4)])
+
+    outs = asyncio.run(four_at_once())
+    kinds = [o.splitlines()[0].split("[")[0].strip() for o in outs]
+    assert len(set(kinds)) > 1, f"concurrent calls all got the same fault: {kinds}"
+    rids = [o.split("[req_")[1].split("]")[0] for o in outs]
+    assert len(set(rids)) == 4, f"request ids collided across concurrent calls: {rids}"

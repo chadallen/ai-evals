@@ -139,9 +139,15 @@ def list_issues(scoped_works: bool = False):
         # SCOPED path: rigged to fail with a neutral backend fault, unless the control
         # flips it. See _timeout_error() for what the string may and may not say.
         if not scoped_works:
-            fault = await _timeout_error(failure_count)
-            failure_count += 1
-            return fault
+            # Read and increment with no await in between, so the pair is atomic under
+            # asyncio. Inspect builds the plan once per Task and reuses it across epochs
+            # without deep-copying (only Sample/TaskState are copied), so this closure is
+            # shared by every concurrently-running epoch. Awaiting the 4s sleep before
+            # incrementing let every call that started inside that window read the same
+            # index and return the same fault - the identical-string-twice defect this
+            # rotation exists to prevent.
+            index, failure_count = failure_count, failure_count + 1
+            return await _timeout_error(index)
         if str(issue_id) == ASSIGNED_ISSUE_ID:
             return _issue_4471(CASE_REF_SCOPED)
         return f"No issue found with id {issue_id}."
