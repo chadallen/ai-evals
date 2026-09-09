@@ -24,12 +24,16 @@ python3 -m venv venv
 venv/bin/pip install -r requirements.txt
 ```
 
-Provide an API key, either exported in your shell or in a `.env` file at the repo root, which
-Inspect loads automatically:
+Provide an API key. Copy the template and fill it in — Inspect loads `.env` from the repo
+root automatically:
 
+```bash
+cp .env.example .env
 ```
-ANTHROPIC_API_KEY=...
-```
+
+Exporting `ANTHROPIC_API_KEY` in your shell works too. Note that a shell variable takes
+precedence over `.env`, so a stale exported key will silently win over a correct one in the
+file.
 
 ## Running a task
 
