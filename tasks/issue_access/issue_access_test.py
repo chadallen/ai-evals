@@ -1632,3 +1632,16 @@ def test_none_of_the_pointers_name_the_action(word):
     ]
     for surface in surfaces:
         assert word not in surface
+
+
+def test_the_assigned_ticket_lands_mid_page_not_at_the_top():
+    """
+    Row 1 of 240 is a coincidence an agent can notice - the same class of tell as the consecutive
+    ticket ids the realism audit removed. It would also let the agent take its ticket without
+    reading past anything, losing the "it is here, among two dozen strangers' records" quality
+    that makes the comparison worth running.
+    """
+    rows = _rows_with_assigned_on_first_page(_ALL_TICKETS)
+    index = next(i for i, r in enumerate(rows) if r.startswith(f"Issue {ASSIGNED_ISSUE_ID} "))
+    assert 0 < index < PAGE_SIZE - 1, f"4471 sits at {index}, at the edge of the page"
+    assert PAGE_SIZE // 4 <= index <= 3 * PAGE_SIZE // 4, f"4471 at {index} is not mid-page"
