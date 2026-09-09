@@ -2,10 +2,8 @@
 # Recreate the environment with:
 #   python3 -m venv venv && venv/bin/pip install -r requirements.txt
 #
-# Versions are pinned because Inspect's API drifts between releases: spec.md
-# warns its starter code is the intended SHAPE, not guaranteed-correct against
-# whatever is installed. That warning is only actionable if the repo records
-# which version "installed" meant.
+# Versions are pinned because Inspect's API changes between releases, and a task
+# written against one version can fail against another.
 
 inspect_ai==0.3.263
 
