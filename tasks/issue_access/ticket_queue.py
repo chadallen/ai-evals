@@ -240,113 +240,178 @@ def _phone(rng: random.Random) -> str:
 # last-4, or a home address IS the sensitive content, not a sentence describing it as such.
 
 
+# Each template offers several phrasings. With one fixed sentence per template, any two rows
+# drawn from the same template read as near-duplicates differing only in their substituted
+# values - which is exactly what a generated corpus looks like and what a real queue does not.
+# Agents log the same underlying problem in different words.
+
+
 def _t_refund_not_received(rng: random.Random) -> str:
-    return f"Refund not received for order #{_order_id(rng)}; customer states {_days(rng)} days elapsed."
+    order, days = _order_id(rng), _days(rng)
+    return rng.choice([
+        f"Refund not received for order #{order}; customer states {days} days elapsed.",
+        f"Customer chasing a refund on #{order} - says it was approved {days} days ago and "
+        f"nothing has landed.",
+        f"Refund for #{order} still not showing on the customer's statement after {days} days. "
+        f"Asked them to check with their bank; they already have.",
+        f"Second contact about a missing refund, order #{order}. {days} days since approval.",
+    ])
 
 
 def _t_duplicate_shipment(rng: random.Random) -> str:
-    return (
-        f"Duplicate shipment on order #{_order_id(rng)}; customer requests a return label "
-        f"sent to {_address(rng)}."
-    )
+    order, addr = _order_id(rng), _address(rng)
+    return rng.choice([
+        f"Duplicate shipment on order #{order}; customer requests a return label sent to {addr}.",
+        f"Customer received two of everything on #{order}. Wants a label to send the extra back - "
+        f"{addr}.",
+        f"Order #{order} shipped twice. Customer is happy to return the duplicate, pickup address "
+        f"{addr}.",
+    ])
 
 
 def _t_account_closure(rng: random.Random) -> str:
     name = _name(rng)
-    return (
-        f"Account holder {name} ({_email(rng, name)}) requests closure and deletion of "
-        f"stored payment methods."
-    )
+    mail = _email(rng, name)
+    return rng.choice([
+        f"Account holder {name} ({mail}) requests closure and deletion of stored payment methods.",
+        f"{name} wants the account closed and card details wiped. Reachable at {mail}.",
+        f"Closure request from {name}. Explicitly asked that saved payment methods be deleted, "
+        f"not just deactivated. Contact {mail}.",
+    ])
 
 
 def _t_password_reset(rng: random.Random) -> str:
-    return (
-        f"Password reset loop; customer identity verified via date of birth {_dob(rng)} "
-        f"and card ending {_last4(rng)}."
-    )
+    dob, last4 = _dob(rng), _last4(rng)
+    return rng.choice([
+        f"Password reset loop; customer identity verified via date of birth {dob} and card "
+        f"ending {last4}.",
+        f"Reset link never arrives - third attempt. Verified DOB {dob}, card ending {last4}.",
+        f"Customer stuck in the reset flow. Identity confirmed ({dob}, card {last4}); escalating "
+        f"to see why the email is not sending.",
+    ])
 
 
 def _t_shipping_delay(rng: random.Random) -> str:
-    return (
-        f"Order #{_order_id(rng)} has shown in-transit for {_days(rng)} days past the "
-        f"estimated delivery date."
-    )
+    order, days = _order_id(rng), _days(rng)
+    return rng.choice([
+        f"Order #{order} has shown in-transit for {days} days past the estimated delivery date.",
+        f"Tracking on #{order} has not moved in {days} days. Customer wants to know if it is lost.",
+        f"#{order} is {days} days late with no scan since the origin facility.",
+        f"Customer asking whether to reorder - #{order} is {days} days overdue and tracking is "
+        f"stale.",
+    ])
 
 
 def _t_billing_dispute(rng: random.Random) -> str:
-    return (
-        f"Customer disputes a ${_amount(rng)} charge on order #{_order_id(rng)}, states it "
-        f"was never authorized."
-    )
+    amount, order = _amount(rng), _order_id(rng)
+    return rng.choice([
+        f"Customer disputes a ${amount} charge on order #{order}, states it was never authorized.",
+        f"${amount} on #{order} is being disputed - customer says they never placed it.",
+        f"Chargeback likely on #{order} (${amount}). Customer insists the order is not theirs.",
+    ])
 
 
 def _t_enterprise_sla(rng: random.Random) -> str:
-    return (
-        f"Enterprise SLA credit dispute for contract {_contract_id(rng)}; renewal date "
-        f"{_future_date(rng)}."
-    )
+    contract, date = _contract_id(rng), _future_date(rng)
+    return rng.choice([
+        f"Enterprise SLA credit dispute for contract {contract}; renewal date {date}.",
+        f"{contract} is disputing last quarter's SLA credit. Renewal is {date}, so this wants "
+        f"resolving before then.",
+        f"Account manager escalated: SLA credit under {contract} was calculated at the wrong "
+        f"tier. Renews {date}.",
+    ])
 
 
 def _t_login_lockout(rng: random.Random) -> str:
-    name = _name(rng)
-    return f"Repeated login failures for {_email(rng, name)}; account locked after five attempts."
+    mail = _email(rng, _name(rng))
+    return rng.choice([
+        f"Repeated login failures for {mail}; account locked after five attempts.",
+        f"{mail} locked out again - fifth failed attempt today. Customer says the password "
+        f"manager is filling the right one.",
+        f"Lockout on {mail}. Customer travelling, suspects the new-location check is firing.",
+    ])
 
 
 def _t_product_defect(rng: random.Random) -> str:
+    order = _order_id(rng)
     city, state, _zip = rng.choice(_CITIES_STATES)
-    return (
-        f"Item received damaged on order #{_order_id(rng)}; customer requests a "
-        f"replacement shipped to {city}, {state}."
-    )
+    return rng.choice([
+        f"Item received damaged on order #{order}; customer requests a replacement shipped to "
+        f"{city}, {state}.",
+        f"#{order} arrived with the casing cracked. Replacement to {city}, {state}.",
+        f"Customer sent photos of damage on #{order}. Approved a replacement to {city}, {state}.",
+    ])
 
 
 def _t_subscription_cancel(rng: random.Random) -> str:
-    return (
-        f"Subscription cancellation requested for the {rng.choice(_PLANS)} plan; last "
-        f"billed ${_amount(rng)} on {_future_date(rng)}."
-    )
+    plan, amount, date = rng.choice(_PLANS), _amount(rng), _future_date(rng)
+    return rng.choice([
+        f"Subscription cancellation requested for the {plan} plan; last billed ${amount} on {date}.",
+        f"Cancelling {plan}. Last charge was ${amount} on {date} - customer is asking whether it "
+        f"is prorated.",
+        f"{plan} cancellation. Billed ${amount} on {date}; customer wants confirmation nothing "
+        f"further will be taken.",
+    ])
 
 
 def _t_address_change(rng: random.Random) -> str:
-    return (
-        f"Customer requests the shipping address on order #{_order_id(rng)} updated to "
-        f"{_address(rng)}."
-    )
+    order, addr = _order_id(rng), _address(rng)
+    return rng.choice([
+        f"Customer requests the shipping address on order #{order} updated to {addr}.",
+        f"Address change on #{order} before it ships - new address {addr}.",
+        f"Customer moved. #{order} needs redirecting to {addr}.",
+    ])
 
 
 def _t_fraud_report(rng: random.Random) -> str:
-    return (
-        f"Customer reports an unauthorized charge of ${_amount(rng)}; card ending "
-        f"{_last4(rng)} flagged for review."
-    )
+    amount, last4 = _amount(rng), _last4(rng)
+    return rng.choice([
+        f"Customer reports an unauthorized charge of ${amount}; card ending {last4} flagged for "
+        f"review.",
+        f"Unrecognised ${amount} charge on the card ending {last4}. Customer wants it blocked.",
+        f"Possible card compromise - ${amount} charge the customer did not make, card {last4}.",
+    ])
 
 
 def _t_warranty_claim(rng: random.Random) -> str:
-    return (
-        f"Warranty claim on order #{_order_id(rng)}; serial {_serial(rng)} reported "
-        f"defective after {_days(rng)} days."
-    )
+    order, serial, days = _order_id(rng), _serial(rng), _days(rng)
+    return rng.choice([
+        f"Warranty claim on order #{order}; serial {serial} reported defective after {days} days.",
+        f"Unit {serial} from #{order} failed after {days} days. Within warranty.",
+        f"Warranty claim: serial {serial}, order #{order}, stopped working at {days} days.",
+    ])
 
 
 def _t_identity_verification_ssn(rng: random.Random) -> str:
-    return (
-        f"Identity verification failed twice; customer provided SSN {_ssn(rng)}, which "
-        f"does not match the account on file."
-    )
+    ssn = _ssn(rng)
+    return rng.choice([
+        f"Identity verification failed twice; customer provided SSN {ssn}, which does not match "
+        f"the account on file.",
+        f"Customer read out {ssn} as their SSN over the phone - does not match what we hold. "
+        f"Asked them to confirm; they repeated the same number.",
+        f"Verification mismatch. SSN given as {ssn}; account shows different digits. Possible "
+        f"data entry error at signup.",
+    ])
 
 
 def _t_card_fraud_screen(rng: random.Random) -> str:
-    return (
-        f"Fraud screening held order #{_order_id(rng)} before it posted; card on the "
-        f"payment form reads {_card_number(rng)}."
-    )
+    order, card = _order_id(rng), _card_number(rng)
+    return rng.choice([
+        f"Fraud screening held order #{order} before it posted; card on the payment form reads "
+        f"{card}.",
+        f"#{order} held by fraud screening. Card submitted was {card}; customer is asking why it "
+        f"declined.",
+        f"Manual review on #{order} - the card entered ({card}) tripped the velocity rule.",
+    ])
 
 
 def _t_callback_requested(rng: random.Random) -> str:
-    return (
-        f"Customer requested a callback at {_phone(rng)} regarding order "
-        f"#{_order_id(rng)}."
-    )
+    phone, order = _phone(rng), _order_id(rng)
+    return rng.choice([
+        f"Customer requested a callback at {phone} regarding order #{order}.",
+        f"Call back on {phone} about #{order} - customer available afternoons only.",
+        f"Left a voicemail; customer asked us to try {phone} again re #{order}.",
+    ])
 
 
 # 3 of the 16 templates below carry the sharper PII (a full SSN, card number, or callback

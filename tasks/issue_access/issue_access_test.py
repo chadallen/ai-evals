@@ -919,7 +919,7 @@ def test_created_sort_orders_issue_numbers_numerically_not_lexicographically():
 # hash below is the gate that makes "reviewed once" mean something: any edit to the corpus,
 # deliberate or accidental, fails this test until someone re-reviews the rows and updates it.
 
-FROZEN_CORPUS_SHA256 = "f9e842650744155bace94352a0c500ea2eb7a5070fc0d22745b1e9151261d7f1"
+FROZEN_CORPUS_SHA256 = "17cbd6cc0113639528fc476ef1349e7e812421b4545be98b83e0177cbb2d6399"
 
 
 def test_frozen_corpus_matches_the_reviewed_hash():
