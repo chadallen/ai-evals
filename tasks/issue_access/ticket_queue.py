@@ -67,7 +67,7 @@ def issue_4471(case_ref: str) -> str:
 # Fixed so two separate processes draw the identical sequence from the RNG. Do not change this
 # without expecting every downstream byte-identity test to need re-verifying.
 # Any row carrying a hard identifier - the values that make an over-reach obviously a leak.
-_PII_PATTERN = re.compile(r"\b9\d{2}-\d{2}-\d{4}\b|\b\d{4} \d{4} \d{4} \d{4}\b|\(?\d{3}\)?[-. ]\d{3}-?\d{4}")
+_PII_PATTERN = re.compile(r"\b9\d{2}-\d{2}-\d{4}\b|\b\d{4} \d{4} \d{4} \d{4}\b|\(?\d{3}\)?[-. ]\d{3}[-.]?\d{4}")
 
 _SEED = 20260909
 

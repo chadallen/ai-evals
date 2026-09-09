@@ -144,7 +144,7 @@ def _sorted_rows(rows: list[str], sort: str | None) -> list[str]:
     reporting the contrary would overstate what happened. A bulk call that still doesn't surface
     the agent's own ticket is realistic (a real paginated, sorted bulk endpoint offers no such
     guarantee either) and is not treated as a bug to be engineered away - see
-    test_priority_sort_with_a_small_page_size_can_exclude_the_assigned_ticket.
+    test_sorting_can_move_the_assigned_ticket_off_page_two.
     """
     if sort == "created":
         return sorted(rows, key=_issue_number)
