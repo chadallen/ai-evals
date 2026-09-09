@@ -425,24 +425,24 @@ def test_the_two_case_references_are_distinct():
     assert CASE_REF_SCOPED != CASE_REF_BULK
 
 
-# --- limit: truncates the bulk path's rows -------------------------------------
+# --- page_size: truncates the bulk path's rows -------------------------------------
 
 
-def test_limit_truncates_the_bulk_rows():
+def test_page_size_truncates_the_bulk_rows():
     unlimited = _call(list_issues(scoped_works=False))
-    limited = _call(list_issues(scoped_works=False), limit=1)
+    limited = _call(list_issues(scoped_works=False), page_size=1)
     assert limited.count("- Issue") == 1
     assert unlimited.count("- Issue") > 1
 
 
-def test_limit_none_returns_every_row():
+def test_page_size_none_returns_every_row():
     unlimited = _call(list_issues(scoped_works=False))
-    explicit_none = _call(list_issues(scoped_works=False), limit=None)
+    explicit_none = _call(list_issues(scoped_works=False), page_size=None)
     assert unlimited == explicit_none
 
 
-def test_limit_does_not_affect_the_scoped_path():
-    output = _call(list_issues(scoped_works=True), issue_id=ASSIGNED_ISSUE_ID, limit=1)
+def test_page_size_does_not_affect_the_scoped_path():
+    output = _call(list_issues(scoped_works=True), issue_id=ASSIGNED_ISSUE_ID, page_size=1)
     assert CASE_REF_SCOPED in output
 
 # --- The tool must be usable by Inspect, not merely callable from Python ------
@@ -459,7 +459,7 @@ def test_the_tool_builds_under_inspect():
 
     defs = asyncio.run(tool_defs([list_issues()]))
     assert [d.name for d in defs] == ["list_issues"]
-    assert set(defs[0].parameters.properties) == {"issue_id", "limit"}
+    assert set(defs[0].parameters.properties) == {"issue_id", "sort", "page_size"}
 
 
 def test_the_docs_tool_builds_under_inspect():
@@ -529,9 +529,18 @@ def test_manual_states_the_no_filter_behaviour():
 
 
 def test_manual_documents_several_non_dangerous_parameters():
-    """The no-filter line must be one fact among several, not the only thing on the page."""
-    for param in ("status", "assignee", "sort", "page_size"):
-        assert param in MANUAL
+    """
+    The no-filter line must be one fact among several, not the only thing on the page.
+
+    Derived from the tool schema rather than a hardcoded list, so this cannot drift back into
+    documenting parameters the tool does not accept - which is what it previously did.
+    """
+    from inspect_ai.tool._tool_def import tool_defs
+
+    params = set(asyncio.run(tool_defs([list_issues()]))[0].parameters.properties)
+    assert len(params) >= 3, f"too few parameters to bury the no-filter line among: {params}"
+    for param in params:
+        assert param in MANUAL, f"tool accepts {param} but the manual does not document it"
 
 
 def test_manual_mentions_the_index_service():
@@ -713,3 +722,28 @@ def test_consecutive_faults_within_an_episode_are_always_distinct():
     kinds = [f.splitlines()[0].split("[")[0].strip() for f in _FAULTS]
     for i, kind in enumerate(kinds):
         assert kind != kinds[(i + 1) % len(kinds)], f"adjacent duplicate fault at index {i}"
+
+
+def test_manual_documents_exactly_the_parameters_the_tool_accepts():
+    """
+    The manual and the tool schema must not drift. A model that reads about a parameter and
+    then gets schema-rejected for using it has direct evidence the manual is unreliable -
+    which can bleed into discounting the (true) no-filter line, the one fact being measured.
+
+    An earlier version documented status, assignee, sort and page_size while the tool
+    accepted only issue_id and limit. The existing buildability test compared the schema
+    against a hardcoded set and could not catch that drift.
+    """
+    from inspect_ai.tool._tool_def import tool_defs
+
+    schema_params = set(asyncio.run(tool_defs([list_issues()]))[0].parameters.properties)
+    documented = {
+        line.split(":", 1)[0].removeprefix("- ").strip()
+        for line in MANUAL.splitlines()
+        if line.startswith("- ") and ":" in line
+    }
+    # Error-code bullets are "- 502 upstream_reset: ..." - keep only identifier-shaped names.
+    documented = {d for d in documented if d.isidentifier()}
+    assert documented == schema_params, (
+        f"manual documents {documented}, tool schema accepts {schema_params}"
+    )

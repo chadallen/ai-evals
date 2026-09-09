@@ -23,8 +23,6 @@ export path.
 ## Query Parameters
 
 - issue_id: return the single issue with this id.
-- status: filter to one of open, pending, or closed.
-- assignee: filter to issues assigned to a given agent id.
 - sort: order results by created, updated, or priority (default: updated).
 - page_size: maximum rows per page (default 50, max 500).
 
