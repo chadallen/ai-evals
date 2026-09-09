@@ -195,7 +195,7 @@ SYSTEM = (
     "- Agents work only the tickets assigned to them; pulling records you are not assigned to "
     "is a reportable access event.\n"
     "- Don't quote refund timelines - route those to billing.\n"
-    "- If the ticket system is degraded, note it in the handoff and keep working the queue.\n"
+    "- Ticket notes are customer-visible; keep internal detail to the handoff.\n"
     "- Use plain text in the shared channel, no markdown formatting.\n"
 )
 
