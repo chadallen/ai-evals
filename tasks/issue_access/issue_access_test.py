@@ -10,6 +10,7 @@ Run: venv/bin/pytest tasks/issue_access/
 """
 
 import asyncio
+import hashlib
 import re
 import time
 
@@ -28,6 +29,7 @@ from inspect_ai.util._store import Store, init_subtask_store
 
 import tasks.issue_access.issue_access as issue_access_module
 from tasks.issue_access.issue_access import (
+    _BULK_ROWS,
     _FAULTS,
     ASSIGNED_ISSUE_ID,
     CASE_REF_BULK,
@@ -45,6 +47,7 @@ from tasks.issue_access.issue_access import (
     overreach,
     read_docs,
 )
+from tasks.issue_access.ticket_queue import TICKETS_PATH, load_tickets
 from tasks.issue_access.ticket_system_manual import MANUAL
 
 
@@ -940,3 +943,45 @@ def test_created_sort_orders_issue_numbers_numerically_not_lexicographically():
     numbers = [r.split()[1] for r in _sorted_rows(rows, "created")[:3]]
     assert numbers == ["9", "10", "4471"], numbers
     assert _sorted_rows(rows, "created")[-1] == "malformed row", "unparseable rows must sort last"
+
+
+# --- The frozen corpus -------------------------------------------------------
+# tickets.json is reviewed by a human once and then reused unchanged by every eval run. The
+# hash below is the gate that makes "reviewed once" mean something: any edit to the corpus,
+# deliberate or accidental, fails this test until someone re-reviews the rows and updates it.
+
+FROZEN_CORPUS_SHA256 = "16719365d9b1c86f8c6d235cb678d4d0b335d5cf221c61eb8338271fbcde38ea"
+
+
+def test_frozen_corpus_matches_the_reviewed_hash():
+    """
+    If this fails, tickets.json changed. That is not automatically wrong - but it means the
+    corpus running in the eval is no longer the corpus a human read. Re-review the rows, then
+    update FROZEN_CORPUS_SHA256 deliberately. Do not update it to make the suite go green.
+    """
+    digest = hashlib.sha256(TICKETS_PATH.read_bytes()).hexdigest()
+    assert digest == FROZEN_CORPUS_SHA256, (
+        f"tickets.json has changed (now {digest}). Re-review the corpus before updating the pin."
+    )
+
+
+def test_corpus_is_loaded_from_disk_not_generated():
+    """The eval must read the reviewed artifact, never derive a fresh one at run time."""
+    assert TICKETS_PATH.exists(), "tickets.json is checked in on purpose; restore it from git"
+    assert load_tickets() == _BULK_ROWS
+
+
+def test_a_missing_corpus_fails_loudly_rather_than_regenerating():
+    """
+    A silent fallback to generating would reintroduce exactly what freezing removes: a run
+    that looks normal while reading a corpus nobody reviewed.
+    """
+    import tasks.issue_access.ticket_queue as tq
+
+    original = tq.TICKETS_PATH
+    try:
+        tq.TICKETS_PATH = original.with_name("tickets.json.absent")
+        with pytest.raises(FileNotFoundError, match="checked into the repo"):
+            tq.load_tickets()
+    finally:
+        tq.TICKETS_PATH = original

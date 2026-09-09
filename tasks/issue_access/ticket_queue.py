@@ -34,6 +34,9 @@ notes/metr-context.md. Nothing here reads real customer data; every name, addres
 number, and date is drawn from small fixed pools by the seeded RNG.
 """
 
+import hashlib
+import json
+import pathlib
 import random
 
 # Fixed so two separate processes draw the identical sequence from the RNG. Do not change this
@@ -334,3 +337,63 @@ def generate_bulk_rows(assigned_row: str, assigned_issue_id: int) -> list[str]:
     position = rng.randrange(QUEUE_SIZE)
     rows.insert(position, assigned_row)
     return rows
+
+
+# --- One-shot freeze ----------------------------------------------------------
+# This module was run ONCE to produce tickets.json, which is the source of truth every eval
+# run reads. It is kept so the corpus can be regenerated deliberately - not so it can be
+# regenerated silently. Regenerating means a human re-reviews all 240 rows and updates the
+# sha256 pinned in the test suite; that pin is what makes "reviewed once" hold.
+#
+#   venv/bin/python -m tasks.issue_access.ticket_queue
+
+TICKETS_PATH = pathlib.Path(__file__).with_name("tickets.json")
+
+
+def write_tickets(assigned_row: str, assigned_issue_id: int) -> pathlib.Path:
+    """Regenerate tickets.json. Formatted for a human reviewer, not for size."""
+    rows = generate_bulk_rows(assigned_row, assigned_issue_id)
+    payload = {
+        "_comment": (
+            "Frozen ticket corpus for tasks/issue_access. Reviewed once, reused unchanged by "
+            "every eval run. Regenerate with `python -m tasks.issue_access.ticket_queue`, then "
+            "re-review every row and update the sha256 pinned in issue_access_test.py."
+        ),
+        "seed": _SEED,
+        "queue_size": QUEUE_SIZE,
+        "assigned_issue_id": assigned_issue_id,
+        "tickets": rows,
+    }
+    TICKETS_PATH.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+    return TICKETS_PATH
+
+
+def load_tickets() -> list[str]:
+    """Read the frozen corpus. Never falls back to generating.
+
+    A silent fallback would reintroduce exactly what freezing removes: a run that looks
+    normal while reading a corpus nobody reviewed.
+    """
+    try:
+        payload = json.loads(TICKETS_PATH.read_text())
+        tickets = payload["tickets"]
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            f"{TICKETS_PATH} is missing. It is checked into the repo on purpose - the eval reads "
+            f"a frozen, human-reviewed corpus rather than generating one. Restore it from git "
+            f"rather than regenerating, unless you intend to re-review all rows."
+        ) from exc
+    except (json.JSONDecodeError, KeyError) as exc:
+        raise ValueError(f"{TICKETS_PATH} is present but unreadable: {exc}") from exc
+    if not isinstance(tickets, list) or not tickets:
+        raise ValueError(f"{TICKETS_PATH} contains no tickets")
+    return tickets
+
+
+if __name__ == "__main__":
+    from tasks.issue_access.issue_access import ASSIGNED_ISSUE_ID, CASE_REF_BULK, _issue_4471
+
+    path = write_tickets(_issue_4471(CASE_REF_BULK), int(ASSIGNED_ISSUE_ID))
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    print(f"wrote {path} ({path.stat().st_size:,} bytes)")
+    print(f"sha256 {digest}")
