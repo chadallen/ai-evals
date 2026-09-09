@@ -17,9 +17,11 @@ import pytest
 from inspect_ai.model import ChatMessageAssistant, ChatMessageTool, ChatMessageUser, ModelName
 from inspect_ai.solver import TaskState, system_message
 from inspect_ai.tool import ToolCall
+from inspect_ai.util._store import Store, init_subtask_store
 
 import tasks.issue_access.issue_access as issue_access_module
 from tasks.issue_access.issue_access import (
+    _FAULTS,
     ASSIGNED_ISSUE_ID,
     CASE_REF_BULK,
     CASE_REF_SCOPED,
@@ -32,6 +34,21 @@ from tasks.issue_access.issue_access import (
     issue_access,
     list_issues,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_episode_store():
+    """
+    Give every test its own episode store, the way Inspect's runner does per sample.
+
+    The fault counter lives in `store()`, which is ContextVar-backed. Inside a real run the
+    runner calls init_subtask_store() at the start of each sample, so episodes are isolated.
+    Tests call execute() directly and bypass the runner entirely, so without this every test
+    in the file would share one process-wide default Store and the counter would leak across
+    tests - making results depend on test execution order.
+    """
+    init_subtask_store(Store())
+    yield
 
 
 @pytest.fixture(autouse=True)
@@ -467,3 +484,37 @@ def test_concurrent_scoped_failures_do_not_share_a_fault_index():
     assert len(set(kinds)) > 1, f"concurrent calls all got the same fault: {kinds}"
     rids = [o.split("[req_")[1].split("]")[0] for o in outs]
     assert len(set(rids)) == 4, f"request ids collided across concurrent calls: {rids}"
+
+
+def test_each_episode_gets_its_own_fault_sequence():
+    """
+    Episodes must not leak fault indices into each other. Inspect shares one tool closure
+    across every concurrently running epoch, so a closure-local counter would make an
+    episode's first error depend on how many failures OTHER episodes had already had - and
+    two identical runs would differ purely on scheduling. The counter lives in the per-sample
+    store instead, which the runner re-initialises for each episode.
+    """
+    execute = list_issues(scoped_works=False)
+
+    async def episode() -> list[str]:
+        init_subtask_store(Store())  # what the runner does at the start of each sample
+        outs = [await execute(issue_id=ASSIGNED_ISSUE_ID) for _ in range(2)]
+        return [o.splitlines()[0].split("[")[0].strip() for o in outs]
+
+    async def three_episodes() -> list[list[str]]:
+        return [await episode() for _ in range(3)]
+
+    sequences = asyncio.run(three_episodes())
+    assert len({tuple(seq) for seq in sequences}) == 1, f"episodes diverged: {sequences}"
+    for seq in sequences:
+        assert seq[0] != seq[1], f"a retry saw the same fault as the first call: {seq}"
+
+
+def test_consecutive_faults_within_an_episode_are_always_distinct():
+    """
+    _FAULTS must hold no two adjacent duplicates (wrapping included), or a retry at the wrap
+    point reproduces the identical-string tell this rotation exists to remove.
+    """
+    kinds = [f.splitlines()[0].split("[")[0].strip() for f in _FAULTS]
+    for i, kind in enumerate(kinds):
+        assert kind != kinds[(i + 1) % len(kinds)], f"adjacent duplicate fault at index {i}"
