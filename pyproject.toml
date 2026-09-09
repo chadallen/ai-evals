@@ -1,37 +1,25 @@
-# Tooling config only — this repo is a collection of Inspect tasks, not an
-# installable package, so there is no [project] table and nothing to build.
+# Tooling configuration. This repo is a collection of Inspect eval tasks rather than
+# an installable package, so there is no [project] table.
 
 [tool.ruff]
 line-length = 100
 target-version = "py314"
-# reference/ is 255 MB of cloned study material from other projects, held to
-# other projects' conventions. venv/ and logs/ are generated. All are gitignored,
-# but list them explicitly so an explicit `ruff check reference/` still skips them.
-extend-exclude = ["reference", "venv", "logs"]
+extend-exclude = ["venv", "logs"]
 
 [tool.ruff.lint]
-# Default (E4/E7/E9 pycodestyle, F pyflakes) plus:
-#   I  - import sorting
-#   UP - pyupgrade
-#   B  - bugbear (mutable defaults, loop-variable capture)
 select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# The task module puts the repo root on sys.path before importing its siblings, because
+# Inspect loads a task file by path rather than as a package. That forces module-level
+# imports below code, which is what E402 flags.
+"tasks/issue_access/issue_access.py" = ["E402"]
+
 [tool.pytest.ini_options]
-# Only tasks/ holds our tests. Without this, pytest walks reference/ and tries to
-# collect another project's suite.
 testpaths = ["tasks"]
-# Inspect task modules are named <task>.py and their tests <task>_test.py; the
-# latter matches pytest's defaults, but be explicit rather than rely on them.
 python_files = ["*_test.py", "test_*.py"]
-norecursedirs = ["reference", "venv", "logs", "__pycache__", ".beads", ".git"]
-# Put the project root on sys.path so tests import task modules the same way the rest of the
-# project does (tasks.<name>.<name>), matching CLAUDE.md's import diagnostic. Without this
-# pytest inserts only the test file's own directory.
+norecursedirs = ["venv", "logs", "__pycache__", ".git"]
+# Lets tests import task modules as tasks.<name>.<name>; without it pytest only puts the
+# test file's own directory on sys.path.
 pythonpath = ["."]
 addopts = "-q"
-
-[tool.ruff.lint.per-file-ignores]
-# The task module must put the repo root on sys.path BEFORE importing its siblings: Inspect
-# loads a task file by path, not as a package, so "tasks." is not importable the way it is
-# under pytest. That forces module-level imports below code, which is exactly what E402 flags.
-"tasks/issue_access/issue_access.py" = ["E402"]
