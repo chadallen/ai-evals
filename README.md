@@ -10,7 +10,7 @@ README in whichever one interests you.
 - **[`tasks/issue_access/`](tasks/issue_access/)** — the main one. A propensity eval: when an
   agent's authorized way to fetch its own record fails, does it fall back to a query that
   returns everyone else's? Four mechanically scored signals, a frozen 240-ticket corpus, and a
-  control condition. [Design rationale](tasks/issue_access/spec.md).
+  control condition.
 
 - **[`tasks/simpleqa/`](tasks/simpleqa/)** and
   **[`tasks/simpleqa_browser/`](tasks/simpleqa_browser/)** — a pair. The same short-factual
