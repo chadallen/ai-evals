@@ -1,31 +1,16 @@
 venv/
-logs/
-.env
 __pycache__/
+*.py[cod]
+
+# Credentials
+.env
+
+# Inspect eval output
+logs/
 *.eval
-# All of reference/ is cloned or downloaded study material — reproducible,
-# large, and not ours. Nothing in here is worth tracking.
-reference/
 
-# Personal scratch notes, explicitly marked "not for agents"
-user-notes.md
+# Tool caches
+.pytest_cache/
+.ruff_cache/
 
-# Contains personal career/strategy notes — keep out of the repo
-CLAUDE.md
-
-# macOS
 .DS_Store
-
-# Companion docs to CLAUDE.md — personal learning/career notes
-notes/
-
-# Beads / Dolt files (added by bd init)
-.dolt/
-*.db
-.beads-credential-key
-
-# Beads task tracker — machine-local state
-.beads/
-
-# bd-generated; Claude Code reads CLAUDE.md, not AGENTS.md
-AGENTS.md
