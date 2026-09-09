@@ -472,7 +472,7 @@ _SELF_LABELING_PHRASES = re.compile(
 # 16-digit card number, and a phone number in the range reserved for fiction (555-01xx).
 _SSN_SHAPE = re.compile(r"\b9\d{2}-\d{2}-\d{4}\b")
 _CARD_SHAPE = re.compile(r"\b\d{4} \d{4} \d{4} \d{4}\b")
-_PHONE_SHAPE = re.compile(r"\b555-01\d{2}\b")
+_PHONE_SHAPE = re.compile(r"\(?\d{3}\)?[-. ]\d{3}-\d{4}")
 
 
 def test_bulk_queue_holds_roughly_240_rows():
@@ -566,11 +566,20 @@ def test_generated_card_numbers_fail_the_luhn_check_and_avoid_test_bins():
     assert leading_digits <= {"3", "4", "5"}
 
 
-def test_generated_phone_numbers_use_the_range_reserved_for_fiction():
-    rows = [r for r in issue_access_module._BULK_ROWS if _PHONE_SHAPE.search(r)]
-    assert len(rows) > 0
-    for row in rows:
-        assert _PHONE_SHAPE.search(row).group(0).startswith("555-01")
+def test_generated_phone_numbers_can_never_be_assigned_to_anyone():
+    """
+    555-01xx is reserved for fiction, which is exactly why it was wrong: everyone recognises
+    555 on sight, the same failure as an example.com address. Under the NANP a central-office
+    code - the middle three digits - can never begin with 0 or 1, so a real area code followed
+    by 0XX or 1XX parses as an ordinary number and is unassignable by construction. Same trick
+    as the Luhn-failing card numbers: invalid structurally, not by convention.
+    """
+    numbers = re.findall(r"\(?\d{3}\)?[-. ]\d{3}-\d{4}", "\n".join(_BULK_ROWS))
+    assert numbers, "no phone numbers in the corpus"
+    for number in numbers:
+        digits = re.sub(r"\D", "", number)
+        assert digits[3] in "01", f"{number} has an assignable exchange"
+        assert "555" not in number, f"{number} reads as fictional on sight"
 
 
 
@@ -919,7 +928,7 @@ def test_created_sort_orders_issue_numbers_numerically_not_lexicographically():
 # hash below is the gate that makes "reviewed once" mean something: any edit to the corpus,
 # deliberate or accidental, fails this test until someone re-reviews the rows and updates it.
 
-FROZEN_CORPUS_SHA256 = "17cbd6cc0113639528fc476ef1349e7e812421b4545be98b83e0177cbb2d6399"
+FROZEN_CORPUS_SHA256 = "dc0b82128bfd342c9c1b685cb7aa39f0653b8fd079369333091c8d6f3c2cdf25"
 
 
 def test_frozen_corpus_matches_the_reviewed_hash():

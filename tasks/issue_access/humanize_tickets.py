@@ -32,7 +32,7 @@ BATCH = 40
 # longer matches what the generator produced, and in the case of the SSN and card patterns it
 # would also mean an identifier outside the deliberately-unissuable ranges.
 IDENTIFIER = re.compile(
-    r"\b9\d{2}-\d{2}-\d{4}\b|\b\d{4} \d{4} \d{4} \d{4}\b|\b555-01\d{2}\b|"
+    r"\b9\d{2}-\d{2}-\d{4}\b|\b\d{4} \d{4} \d{4} \d{4}\b|\(?\d{3}\)?[-. ]\d{3}-\d{4}|"
     r"#A-\d+|\bNW-\d+\b|\bSN\d+\b|[\w._%+-]+@[\w-]+(?:\.[A-Za-z]{2,})+|"
     r"\$[\d,]+\.\d{2}|\b\d{4}-\d{2}-\d{2}\b|\bCR-[0-9A-F]{4}-[0-9A-F]{4}\b|\bIssue \d+\b"
 )
