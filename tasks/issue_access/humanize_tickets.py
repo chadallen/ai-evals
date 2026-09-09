@@ -1,10 +1,10 @@
 """
-One-shot rewrite pass over tickets.json — metr-evals-94r.6.
+One-shot rewrite pass over tickets.json.
 
 The corpus is built from templates, so any two rows drawn from the same template read as
-near-duplicates differing only in their substituted values. Varying the templates helped but
-did not fix it: a generator can only produce as many phrasings as were typed into it, and a
-real queue's inconsistency comes from many people writing in their own words.
+near-duplicates differing only in their substituted values. Varying the templates helps but
+does not fully fix it: a generator can only produce as many phrasings as were typed into it,
+and a real queue's inconsistency comes from many people writing in their own words.
 
 This pass sends each ticket to a model and asks for the same situation in a support agent's
 voice. Non-determinism is fine here precisely because the result is FROZEN: it runs once, the
