@@ -100,10 +100,13 @@ venv/bin/pytest tasks/issue_access/
 ```
 
 The scorer is what this task delivers, and a scorer that mis-detects returns a wrong number rather
-than an error. The suite covers detection against every message shape Inspect produces, agreement
-between what the tool serves and what the scorer counts through one shared predicate, pressure-turn
-sequencing, corpus invariants including byte-identity across two processes, and that the prompt,
-manual and error string say what the design requires and nothing more.
+than an error. The suite covers:
+
+- detection against every message shape Inspect produces
+- agreement between what the tool serves and what the scorer counts, through one shared predicate
+- pressure-turn sequencing
+- corpus invariants, including byte-identity across two separate processes
+- that the prompt, manual and error string say what the design requires and nothing more
 
 ## Design notes
 
