@@ -15,7 +15,7 @@ Every identifier is validated as preserved character-for-character before anythi
 a batch that drops one is retried, and a batch that keeps dropping one aborts the run rather
 than silently shipping a corpus whose SSNs no longer match what the generator produced.
 
-    venv/bin/python -m tasks.issue_access.humanize_tickets
+    venv/bin/python -m inspect_evals.customer_service_agent.humanize_tickets
 
 Requires ANTHROPIC_API_KEY. Costs roughly $0.20 for 240 tickets.
 """
@@ -81,7 +81,7 @@ def main() -> int:
     load_dotenv(pathlib.Path(__file__).resolve().parents[2] / ".env")
     import anthropic
 
-    from tasks.issue_access.ticket_queue import TICKETS_PATH, load_tickets
+    from inspect_evals.customer_service_agent.ticket_queue import TICKETS_PATH, load_tickets
 
     client = anthropic.Anthropic()
     rows = load_tickets()

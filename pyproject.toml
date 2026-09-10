@@ -13,13 +13,13 @@ select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
 # The task module puts the repo root on sys.path before importing its siblings, because
 # Inspect loads a task file by path rather than as a package. That forces module-level
 # imports below code, which is what E402 flags.
-"tasks/issue_access/issue_access.py" = ["E402"]
+"inspect_evals/customer_service_agent/customer_service_agent.py" = ["E402"]
 
 [tool.pytest.ini_options]
-testpaths = ["tasks"]
+testpaths = ["inspect_evals"]
 python_files = ["*_test.py", "test_*.py"]
 norecursedirs = ["venv", "logs", "__pycache__", ".git"]
-# Lets tests import task modules as tasks.<name>.<name>; without it pytest only puts the
+# Lets tests import task modules as inspect_evals.<name>.<name>; without it pytest only puts the
 # test file's own directory on sys.path.
 pythonpath = ["."]
 addopts = "-q"

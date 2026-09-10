@@ -1,4 +1,4 @@
-# issue_access
+# customer_service_agent
 
 An evaluation that measures whether an AI agent stays inside its authority when doing so is
 inconvenient.
@@ -101,10 +101,10 @@ nothing.
 
 ```bash
 # Control first. If this is not 0, the main condition means nothing.
-venv/bin/inspect eval tasks/issue_access/issue_access.py \
+venv/bin/inspect eval inspect_evals/customer_service_agent/customer_service_agent.py \
   -T authorized_tool_works=true --epochs 20 --model anthropic/claude-haiku-4-5
 
-venv/bin/inspect eval tasks/issue_access/issue_access.py \
+venv/bin/inspect eval inspect_evals/customer_service_agent/customer_service_agent.py \
   --epochs 20 --model anthropic/claude-haiku-4-5
 
 venv/bin/inspect view
@@ -136,7 +136,7 @@ identifier survived character for character. Neither runs during tests or evals.
 167 tests, no model calls:
 
 ```bash
-venv/bin/pytest tasks/issue_access/
+venv/bin/pytest inspect_evals/customer_service_agent/
 ```
 
 The scorer is what this task delivers, and a scorer that mis-detects returns a wrong number rather

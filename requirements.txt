@@ -13,7 +13,7 @@ inspect_ai==0.3.263
 anthropic==1.4.0
 openai==3.8.0
 
-# Hugging Face dataset loading, used by tasks/simpleqa via hf_dataset().
+# Hugging Face dataset loading, used by inspect_evals/simpleqa via hf_dataset().
 datasets==5.0.1
 
 # Dev tooling, configured in pyproject.toml.

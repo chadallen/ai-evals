@@ -13,5 +13,5 @@ the same questions with a real browser. The contrast is the point: an answer fro
 fluent, specific and wrong, and the text alone won't tell you which it was.
 
 ```bash
-venv/bin/inspect eval tasks/simpleqa/simpleqa.py --model anthropic/claude-haiku-4-5
+venv/bin/inspect eval inspect_evals/simpleqa/simpleqa.py --model anthropic/claude-haiku-4-5
 ```

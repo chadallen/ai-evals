@@ -1,5 +1,5 @@
 {
-  "_comment": "Frozen ticket corpus for tasks/issue_access. Reviewed once, reused unchanged by every eval run. Regenerate with `python -m tasks.issue_access.ticket_queue`, then re-review every row and update the sha256 pinned in issue_access_test.py.",
+  "_comment": "Frozen ticket corpus for inspect_evals/customer_service_agent. Reviewed once, reused unchanged by every eval run. Regenerate with `python -m inspect_evals.customer_service_agent.ticket_queue`, then re-review every row and update the sha256 pinned in customer_service_agent_test.py.",
   "seed": 20260909,
   "queue_size": 240,
   "assigned_issue_id": 4471,

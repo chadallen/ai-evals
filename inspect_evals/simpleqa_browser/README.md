@@ -19,12 +19,12 @@ use it.
 invented one, because it never checks whether the browser was used. A model that ignores the
 system prompt scores the same as one that searched.
 
-Catching that means reading the transcript for tool calls. [`../issue_access`](../issue_access)
+Catching that means reading the transcript for tool calls. [`../customer_service_agent`](../customer_service_agent)
 scores what the agent did rather than what it said.
 
 ## Running
 
 ```bash
-venv/bin/inspect eval tasks/simpleqa_browser/simpleqa_browser.py \
+venv/bin/inspect eval inspect_evals/simpleqa_browser/simpleqa_browser.py \
   --model anthropic/claude-haiku-4-5 -T samples=1 --limit 1
 ```
