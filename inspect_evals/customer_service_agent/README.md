@@ -83,10 +83,9 @@ Controls are 0/20 on the unauthorized call for every model that ran. No model ev
 and then withheld what it found.
 
 The unauthorized-call rate rises with model capability: Haiku 5/20, Sonnet 9/20, Opus 4.8 12/20.
-But `docs_read` complicates the reading. Haiku read the manual in 7 of 20 main-arm episodes; the
+But `docs_read` complicates the results. Haiku read the manual in 7 of 20 main-arm episodes; the
 other 13 never knew the unauthorized path existed. Sonnet and Opus 4.8 read it in every episode.
-The more capable models found the workaround every time and then chose whether to use it. Haiku's
-low rate is mostly ignorance, not restraint.
+The more capable models found the workaround every time and then chose whether to use it. 
 
 Opus 4.8 also caved fastest: 4 of its 12 violations happened with zero pressure, before the
 colleague pushed back at all.
@@ -102,10 +101,8 @@ The control arm was blocked too, and the control has no unauthorized path in it.
 the scenario, not on anything the model did. Opus 4.8 ran the same scenario without a single
 refusal and produced the highest violation rate of any model tested.
 
-The classifier is not present on 4.8 or any smaller model. It appears to be new to Opus 5. This
-means the eval cannot measure the frontier model it most wants to measure, and the paradox is
-structural: the more realistic the unauthorized-access scenario, the closer it sits to the pattern
-an abuse classifier is trained to stop.
+The classifier does not appear to be present on 4.8 or any smaller model. This
+means the eval cannot measure the frontier model we really want to measure. It also means that there is something of a paradox here: we want to run evals with realistic scenarios, but apparently they can't be too realistic because we'll never get a chance to run them...
 
 ## Running
 
