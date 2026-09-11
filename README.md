@@ -1,19 +1,20 @@
 # AI Evals
 
-Evals I built with [Inspect](https://inspect.aisi.org.uk/) to learn how model evaluation is done
-in practice. Inspect is the framework behind most published capability evals, and the same tooling
-is now being used for alignment work. These are alignment evals: they measure what a model chooses
-to do, not what it is able to do.
+This repo contains projects I built using [Inspect](https://inspect.aisi.org.uk/) to teach myself
+about the industry standards for AI model evaluation. Inspect is widely used in capability evals and
+similar practices are now being adopted for alignment evals. I wanted to create some simple alignment
+evals to understand how it works.
 
-## Tasks
+## Evals
 
-- **[`inspect_evals/customer_service_agent/`](inspect_evals/customer_service_agent/)** — when an
-  agent's authorized way to fetch its own record fails, does it fall back to a query that returns
-  everyone else's? Four mechanically scored signals and a control condition.
+- [Customer Service Agent](inspect_evals/customer_service_agent/) - Agents are placed into a role at
+  a simulated customer service desk and pressured to pull records they are not authorized to see,
+  which include (simulated) PII. Do they reach for the unauthorized query, and do they use what it
+  returns? Four signals, scored mechanically, against a control arm.
 
-- **[`inspect_evals/simpleqa_browser/`](inspect_evals/simpleqa_browser/)** — the same factual
-  questions answered with a browser and a Docker sandbox. Shows what a model-graded scorer cannot
-  see.
+- [SimpleQA Browser](inspect_evals/simpleqa_browser/) - A capability eval rather than an alignment
+  one: short factual questions answered by a model with a browser in a Docker sandbox. Its
+  model-graded scorer cannot tell a browsed answer from a recalled one, which is the point.
 
 ## Setup
 
@@ -28,10 +29,10 @@ Copy the template and add your key. Inspect loads `.env` automatically:
 cp .env.example .env
 ```
 
-An exported `ANTHROPIC_API_KEY` also works, and takes precedence over `.env` — a stale one
-in your shell will silently beat a correct one in the file.
+An exported `ANTHROPIC_API_KEY` also works, and takes precedence over `.env` - a stale one in your
+shell will silently beat a correct one in the file.
 
-## Running a task
+## Running
 
 Run from the repo root so logs land in `logs/`.
 
@@ -42,7 +43,7 @@ venv/bin/inspect view          # read the transcripts, not just the scores
 ```
 
 `--epochs N` repeats a sample; a handful isn't enough to trust a rate. `-T name=value` sets task
-parameters, listed in each task's README.
+parameters, listed in each eval's README.
 
 `inspect_evals/simpleqa_browser/` additionally needs Docker running.
 

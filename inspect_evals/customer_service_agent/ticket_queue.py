@@ -241,7 +241,7 @@ def _phone(rng: random.Random) -> str:
     return f"{area}.{exchange}.{line}"
 
 
-# About a dozen templates. Each takes only the shared RNG and returns ticket body text ending
+# Sixteen templates. Each takes only the shared RNG and returns ticket body text ending
 # in a period; none of them name a sensitivity label — a DOB, a last-4, or a home address IS
 # the sensitive content, not a sentence describing it as such.
 
