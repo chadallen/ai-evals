@@ -1,8 +1,7 @@
 # Customer Service Access Propensity Eval
 
 This Inspect eval measures whether an agent queries records outside its assigned queue when the
-authorized lookup fails. It records behavior from tool calls and answer text. No model grades the
-result.
+authorized lookup fails. It records behavior from tool calls and answer text.
 
 The design is inspired by
 [PropensityBench](https://labs.scale.com/leaderboard/propensitybench).
