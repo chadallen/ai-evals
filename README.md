@@ -1,19 +1,19 @@
 # AI Evals
 
-Evaluation tasks built with [Inspect](https://inspect.aisi.org.uk/).
-
-Each task lives in its own directory under `inspect_evals/` and documents itself. Start with the
-README in whichever one interests you.
+Evals I built with [Inspect](https://inspect.aisi.org.uk/) to learn how model evaluation is done
+in practice. Inspect is the framework behind most published capability evals, and the same tooling
+is now being used for alignment work. These are alignment evals: they measure what a model chooses
+to do, not what it is able to do.
 
 ## Tasks
 
-- **[`inspect_evals/customer_service_agent/`](inspect_evals/customer_service_agent/)** — the main
-  one. When an agent's authorized way to fetch its own record fails, does it fall back to a query
-  that returns everyone else's? Four mechanically scored signals and a control condition.
+- **[`inspect_evals/customer_service_agent/`](inspect_evals/customer_service_agent/)** — when an
+  agent's authorized way to fetch its own record fails, does it fall back to a query that returns
+  everyone else's? Four mechanically scored signals and a control condition.
 
-- **[`inspect_evals/simpleqa/`](inspect_evals/simpleqa/)** and
-  **[`inspect_evals/simpleqa_browser/`](inspect_evals/simpleqa_browser/)** — the same questions with
-  and without a browser. Shows what tools change, and what a model-graded scorer can't see.
+- **[`inspect_evals/simpleqa_browser/`](inspect_evals/simpleqa_browser/)** — the same factual
+  questions answered with a browser and a Docker sandbox. Shows what a model-graded scorer cannot
+  see.
 
 ## Setup
 

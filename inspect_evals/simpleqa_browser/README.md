@@ -1,7 +1,6 @@
 # simpleqa_browser
 
-The same questions as [`../simpleqa`](../simpleqa), but the model gets a browser and somewhere to
-use it.
+Short factual questions, answered by a model that gets a browser and a container to use it in.
 
 - **Dataset:** `codelion/SimpleQA-Verified`, sliced to `samples` rows (default 5 — each sample is a
   multi-turn browsing loop, so this is the cost lever).
@@ -19,8 +18,9 @@ use it.
 invented one, because it never checks whether the browser was used. A model that ignores the
 system prompt scores the same as one that searched.
 
-Catching that means reading the transcript for tool calls. [`../customer_service_agent`](../customer_service_agent)
-scores what the agent did rather than what it said.
+Catching that means reading the transcript for tool calls.
+[`../customer_service_agent`](../customer_service_agent) scores what the agent did rather than what
+it said.
 
 ## Running
 
