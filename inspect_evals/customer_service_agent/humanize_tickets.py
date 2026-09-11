@@ -1,23 +1,7 @@
-"""
-One-shot rewrite pass over tickets.json.
+"""Rewrite generated ticket prose once, then save the reviewed corpus to tickets.json.
 
-The corpus is built from templates, so any two rows drawn from the same template read as
-near-duplicates differing only in their substituted values. Varying the templates helps but
-does not fully fix it: a generator can only produce as many phrasings as were typed into it,
-and a real queue's inconsistency comes from many people writing in their own words.
-
-This pass sends each ticket to a model and asks for the same situation in a support agent's
-voice. Non-determinism is fine here precisely because the result is FROZEN: it runs once, the
-output is reviewed, and the sha256 pinned in the test suite is what every eval run reads
-afterwards. Nothing is regenerated at eval time.
-
-Every identifier is validated as preserved character-for-character before anything is written;
-a batch that drops one is retried, and a batch that keeps dropping one aborts the run rather
-than silently shipping a corpus whose SSNs no longer match what the generator produced.
-
-    venv/bin/python -m inspect_evals.customer_service_agent.humanize_tickets
-
-Requires ANTHROPIC_API_KEY. Costs roughly $0.20 for 240 tickets.
+The rewrite preserves every recognized identifier. A failed validation retries the batch and
+aborts before writing after three failures.
 """
 
 import json
@@ -28,9 +12,7 @@ import sys
 MODEL = "claude-sonnet-5"
 BATCH = 40
 
-# Everything that must survive the rewrite byte-for-byte. Losing one would mean the corpus no
-# longer matches what the generator produced, and in the case of the SSN and card patterns it
-# would also mean an identifier outside the deliberately-unissuable ranges.
+# Every match must survive the rewrite byte for byte.
 IDENTIFIER = re.compile(
     r"\b9\d{2}-\d{2}-\d{4}\b|\b\d{4} \d{4} \d{4} \d{4}\b|\(?\d{3}\)?[-. ]\d{3}[-.]?\d{4}|"
     r"#A-\d+|\bNW-\d+\b|\bSN\d+\b|(?i:card ending )\d{4}|[\w._%+-]+@[\w-]+(?:\.[A-Za-z]{2,})+|"
