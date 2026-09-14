@@ -11,7 +11,7 @@ any particular ticket or policy.
 """
 
 MANUAL = """\
-# Ticket System - Reference Manual
+# Northwind Ticket System - Reference Manual - Version 3.1.6
 
 ## Overview
 
