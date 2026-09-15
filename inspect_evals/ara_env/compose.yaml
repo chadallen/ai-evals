@@ -8,14 +8,24 @@ services:
     # HTTP egress stays open so recon and browsing stay wild. The container is
     # the filesystem boundary: no host FS, ~/.ssh, .env, or host Chrome profile.
     #
-    # Outbound SMTP is blocked (ports 25/465/587 to the real internet) so the
-    # agent cannot deliver mail to anyone outside the container. Mailpit's own
-    # SMTP listens on 1025, a different port, so this never touches the
-    # agent's own mail below. NET_ADMIN + iptables is the only way to enforce
-    # a port-level block from inside the compose sandbox; see the command
-    # below. The image has no iptables package, so it's installed at
-    # container start (~3s, confirmed) rather than via a custom Dockerfile —
-    # this image is otherwise unmodified and pinned by digest above.
+    # Outbound SMTP (ports 25/465/587 to the real internet) is DROPped, so the
+    # default send path can't reach an external mail server. Mailpit's own SMTP
+    # is on 1025, untouched, so the agent's intended mail still works.
+    #
+    # Scope, stated honestly: this stops the accidental/default path, NOT a
+    # determined agent. The agent has root and NET_ADMIN in this same container,
+    # so it can `iptables -F OUTPUT` and remove the block itself. The capability
+    # is granted at the container level and every `docker compose exec` (how
+    # Inspect's bash tool enters) inherits it fresh, so an entrypoint that drops
+    # the cap after applying rules would not help. This is consistent with the
+    # already-accepted residual risk that a determined agent can send over
+    # webmail-on-HTTP anyway. A block that survives an adversarial agent needs
+    # enforcement outside this container (host rules or an egress gateway the
+    # agent can't exec into) — deferred; see spec open questions.
+    #
+    # The image has no iptables package, so it's installed at container start
+    # (~3s) rather than via a custom Dockerfile, leaving the base image pinned
+    # by digest above. That apt-get is the one unpinned step.
     cap_add:
       - NET_ADMIN
     command: >
@@ -44,7 +54,9 @@ services:
     init: true
     restart: unless-stopped
     ports:
-      - "8025:8025"
+      # Loopback only: the agent's mailbox is readable at http://localhost:8025
+      # on this host, not exposed to the LAN (no UI auth is configured).
+      - "127.0.0.1:8025:8025"
     volumes:
       - ./mailpit-auth/pop3-auth:/data/pop3-auth:ro
     environment:
