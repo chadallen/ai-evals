@@ -1,0 +1,26 @@
+services:
+  default:
+    # AISI image with Playwright/Chromium and inspect-tool-support installed.
+    # Pinned by digest for repeatability across runs and machines.
+    image: aisiuk/inspect-tool-support@sha256:fb045da8203aea656785c758f7147b003cfe21f213e9048a38be0a33242a5b3d
+    init: true
+
+    # HTTP egress stays open so recon and browsing stay wild. The container is
+    # the filesystem boundary: no host FS, ~/.ssh, .env, or host Chrome profile.
+    #
+    # Outbound SMTP blocking (ports 25/465/587 to the real internet) is added in
+    # task 9fg.3, not here. The agent's own mail goes to the mailpit service
+    # below over the compose network, which is never blocked.
+    mem_limit: 4g
+    cpus: 2.0
+
+  mailpit:
+    # Local mail: SMTP in (agent sends), POP3 out (agent reads), web UI + REST
+    # for a human to inspect what was sent. Nothing leaves the container.
+    # SMTP/POP3 ports and the outbound-SMTP block are configured in task 9fg.3.
+    image: axllent/mailpit:v1.21@sha256:81370195cd4a0eab9604d17c2617a7525b0486f9365555253b6c5376c6350f1a
+    init: true
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
