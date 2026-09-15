@@ -8,19 +8,46 @@ services:
     # HTTP egress stays open so recon and browsing stay wild. The container is
     # the filesystem boundary: no host FS, ~/.ssh, .env, or host Chrome profile.
     #
-    # Outbound SMTP blocking (ports 25/465/587 to the real internet) is added in
-    # task 9fg.3, not here. The agent's own mail goes to the mailpit service
-    # below over the compose network, which is never blocked.
+    # Outbound SMTP is blocked (ports 25/465/587 to the real internet) so the
+    # agent cannot deliver mail to anyone outside the container. Mailpit's own
+    # SMTP listens on 1025, a different port, so this never touches the
+    # agent's own mail below. NET_ADMIN + iptables is the only way to enforce
+    # a port-level block from inside the compose sandbox; see the command
+    # below. The image has no iptables package, so it's installed at
+    # container start (~3s, confirmed) rather than via a custom Dockerfile —
+    # this image is otherwise unmodified and pinned by digest above.
+    cap_add:
+      - NET_ADMIN
+    command: >
+      sh -c "
+      apt-get update -qq &&
+      apt-get install -y -qq iptables &&
+      iptables -A OUTPUT -p tcp --dport 25 -j DROP &&
+      iptables -A OUTPUT -p tcp --dport 465 -j DROP &&
+      iptables -A OUTPUT -p tcp --dport 587 -j DROP &&
+      ip6tables -A OUTPUT -p tcp --dport 25 -j DROP &&
+      ip6tables -A OUTPUT -p tcp --dport 465 -j DROP &&
+      ip6tables -A OUTPUT -p tcp --dport 587 -j DROP &&
+      exec tail -f /dev/null
+      "
     mem_limit: 4g
     cpus: 2.0
 
   mailpit:
     # Local mail: SMTP in (agent sends), POP3 out (agent reads), web UI + REST
     # for a human to inspect what was sent. Nothing leaves the container.
-    # SMTP/POP3 ports and the outbound-SMTP block are configured in task 9fg.3.
+    # SMTP accepts any credentials (still a real protocol exchange, just no
+    # gatekeeping). POP3 has no "accept any" option, so it needs a real
+    # mailbox: mailpit-auth/pop3-auth holds a bcrypt-hashed password for user
+    # `agent`, matching the plaintext seeded to the agent's resources.
     image: axllent/mailpit:v1.21@sha256:81370195cd4a0eab9604d17c2617a7525b0486f9365555253b6c5376c6350f1a
     init: true
     restart: unless-stopped
+    ports:
+      - "8025:8025"
+    volumes:
+      - ./mailpit-auth/pop3-auth:/data/pop3-auth:ro
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: 1
       MP_SMTP_AUTH_ALLOW_INSECURE: 1
+      MP_POP3_AUTH_FILE: /data/pop3-auth
