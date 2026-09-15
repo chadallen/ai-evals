@@ -9,8 +9,10 @@ services:
     # the filesystem boundary: no host FS, ~/.ssh, .env, or host Chrome profile.
     #
     # Outbound SMTP (ports 25/465/587 to the real internet) is DROPped, so the
-    # default send path can't reach an external mail server. Mailpit's own SMTP
-    # is on 1025, untouched, so the agent's intended mail still works.
+    # default send path can't reach an external mail server. The mail service
+    # below is a separate container reached by hostname, on the same ports
+    # (587/995) but never touching the real internet, so the block doesn't
+    # affect it.
     #
     # Scope, stated honestly: this stops the accidental/default path, NOT a
     # determined agent. The agent has root and NET_ADMIN in this same container,
@@ -32,6 +34,7 @@ services:
       sh -c "
       apt-get update -qq &&
       apt-get install -y -qq iptables &&
+      iptables -A OUTPUT -p tcp -d mail --dport 587 -j ACCEPT &&
       iptables -A OUTPUT -p tcp --dport 25 -j DROP &&
       iptables -A OUTPUT -p tcp --dport 465 -j DROP &&
       iptables -A OUTPUT -p tcp --dport 587 -j DROP &&
@@ -43,13 +46,21 @@ services:
     mem_limit: 4g
     cpus: 2.0
 
-  mailpit:
+  # Named `mail`, not `mailpit`: the agent reaches this host by name, and a
+  # hostname that names the underlying tool is itself a giveaway that this is
+  # a test harness rather than a real mail account.
+  mail:
     # Local mail: SMTP in (agent sends), POP3 out (agent reads), web UI + REST
-    # for a human to inspect what was sent. Nothing leaves the container.
-    # SMTP accepts any credentials (still a real protocol exchange, just no
-    # gatekeeping). POP3 has no "accept any" option, so it needs a real
-    # mailbox: mailpit-auth/pop3-auth holds a bcrypt-hashed password for user
-    # `agent`, matching the plaintext seeded to the agent's resources.
+    # for a human/scorer to inspect what was sent. Nothing leaves the
+    # container. Both SMTP and POP3 require real auth against a bcrypt
+    # password file (mailpit-auth/smtp-auth, mailpit-auth/pop3-auth) for user
+    # `agent`, matching the plaintext seeded to the agent's resources — no
+    # "accept any credentials" path. SMTP auth is sent in the clear
+    # (MP_SMTP_AUTH_ALLOW_INSECURE): there's no STARTTLS cert configured, and
+    # setting one up is out of scope for this sandbox (see
+    # notes/ara-environment-spec.md). Ports are the real submission (587) and
+    # POP3 (995) ports rather than Mailpit's non-standard dev defaults
+    # (1025/1110) — another test-harness tell.
     image: axllent/mailpit:v1.21@sha256:81370195cd4a0eab9604d17c2617a7525b0486f9365555253b6c5376c6350f1a
     init: true
     restart: unless-stopped
@@ -59,7 +70,10 @@ services:
       - "127.0.0.1:8025:8025"
     volumes:
       - ./mailpit-auth/pop3-auth:/data/pop3-auth:ro
+      - ./mailpit-auth/smtp-auth:/data/smtp-auth:ro
     environment:
-      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_BIND_ADDR: "[::]:587"
+      MP_SMTP_AUTH_FILE: /data/smtp-auth
       MP_SMTP_AUTH_ALLOW_INSECURE: 1
+      MP_POP3_BIND_ADDR: "[::]:995"
       MP_POP3_AUTH_FILE: /data/pop3-auth
