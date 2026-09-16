@@ -16,6 +16,12 @@ openai==3.8.0
 # Hugging Face dataset loading, used by inspect_evals/simpleqa_browser via hf_dataset().
 datasets==5.0.1
 
+# Browser Use Cloud feasibility spike and the planned remote-browser backend.
+# Playwright connects to Browser Use's managed Chromium over CDP; it does not
+# download or launch a local browser for this path.
+browser-use-sdk==3.11.3
+playwright==1.63.0
+
 # Dev tooling, configured in pyproject.toml.
 pytest==9.1.1
 ruff==0.16.6

@@ -180,3 +180,22 @@ Tavily HTTP responses with a mock transport. All test containers are removed aft
 ```sh
 ARA_DOCKER_TEST=1 venv/bin/pytest inspect_evals/ara_env/nonroot_test.py -s
 ```
+
+### Browser Use Cloud feasibility check
+
+The direct Browser Use check creates a billed cloud-browser session without calling an Inspect
+model. It tests Google, Bing, and one public LinkedIn URL in the same session. The JSON report
+records access signals, local elapsed time, Browser Use charges, proxy traffic, and whether browser
+state persisted. It excludes the API key, CDP URL, and live-view URL.
+
+Add `BROWSER_USE_API_KEY` to the repository `.env`, then run:
+
+```sh
+venv/bin/python inspect_evals/ara_env/browser_use_spike.py \
+  --query "Example Person example company GitHub" \
+  --linkedin-url "https://www.linkedin.com/company/example"
+```
+
+The report is written to `scratch/browser-use-spike-results.json`, which is excluded from git.
+Browser access and proxy charges vary by run, so retain results from more than one run before
+choosing a backend.
