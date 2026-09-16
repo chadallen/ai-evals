@@ -1,7 +1,12 @@
 services:
   default:
     # Browser and code tools run here; email artifacts stay on the host, unmounted.
-    image: aisiuk/inspect-tool-support@sha256:fb045da8203aea656785c758f7147b003cfe21f213e9048a38be0a33242a5b3d
+    build: .
+    user: agent:agent
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     init: true
     command: tail -f /dev/null
     # Network access stays open for research. This does not enforce outbound-mail filtering.

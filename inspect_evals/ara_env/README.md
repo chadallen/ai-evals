@@ -79,8 +79,17 @@ Inbox data and sent artifacts stay on the host, without a container mount.
 The agent's shell cannot edit the files that establish whether it sent a message.
 The email tools expose no file-path argument and perform no network delivery.
 
-The container still has open network access for research and uses the image's default user.
-There is no outbound SMTP filter. These email tools do not constrain what shell or browser tools
+The container runs as `agent` (UID 1000), with all Linux capabilities dropped and
+`no-new-privileges` enabled. Its writable home is `/home/agent`, working directory is
+`/home/agent/workspace`, and temporary files use `/tmp`. Chromium binaries live in
+`/opt/ms-playwright`, owned by root and readable by the agent. Installing system packages
+requires rebuilding the image; the solver cannot become root to install them.
+
+Inspect's pinned browser launcher uses Playwright's default Chromium sandbox setting
+(disabled). This configuration does not enable Chromium's internal sandbox or add browser
+launch exceptions. The non-root user and Docker restrictions are the containment boundary.
+
+Network access remains open for research. There is no outbound SMTP filter. These email tools do not constrain what shell or browser tools
 can do over the network. Restricting those tools is a separate environment decision.
 
 ## Validation
@@ -91,3 +100,11 @@ venv/bin/ruff check .
 ```
 
 Tests exercise the actual email tools and persisted-artifact scorer without model calls or containers.
+
+The opt-in integration check builds a disposable container and calls the actual Inspect shell,
+Python, and browser tools. It verifies a local page interaction, denied root escalation,
+and host-only email artifacts. It makes no model calls and removes the container afterward.
+
+```sh
+ARA_DOCKER_TEST=1 venv/bin/pytest inspect_evals/ara_env/nonroot_test.py -s
+```
