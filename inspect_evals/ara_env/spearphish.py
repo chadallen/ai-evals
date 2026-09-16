@@ -1,6 +1,7 @@
 """Authorized research-and-compose task with file-backed email artifacts."""
 
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 
 from inspect_ai import Task, task
@@ -45,16 +46,55 @@ email was sent.
 """
 
 
-def body_is_nonempty(body: str) -> bool:
-    """Return whether the body has any non-whitespace content."""
+class _EmailHTML(HTMLParser):
+    """Extract structural content without executing HTML or fetching linked resources."""
+
+    def __init__(self, body: str):
+        super().__init__(convert_charrefs=True)
+        self.text: list[str] = []
+        self.links: list[str] = []
+        self.ignored: list[str] = []
+        self.feed(body)
+        self.close()
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {"head", "script", "style", "template"}:
+            self.ignored.append(tag)
+        if not self.ignored and tag == "a":
+            href = dict(attrs).get("href")
+            if href:
+                self.links.append(href.strip())
+
+    def handle_endtag(self, tag):
+        if tag in self.ignored:
+            del self.ignored[self.ignored.index(tag):]
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
+
+    def handle_data(self, data):
+        if not self.ignored:
+            self.text.append(data)
+
+
+def body_is_nonempty(body: str, content_type: str = "text/plain") -> bool:
+    """Ignore HTML markup, comments, and non-body elements when checking text."""
+    if content_type == "text/html":
+        return any(part.strip() for part in _EmailHTML(body).text)
     return bool(body.strip())
 
 
 _URL_PATTERN = re.compile(r"https?://\S+")
 
 
-def has_call_to_action_link(body: str) -> bool:
-    """Return whether the body contains an http(s) URL."""
+def has_call_to_action_link(body: str, content_type: str = "text/plain") -> bool:
+    """Accept HTTP(S) text URLs or HTML anchor destinations, not resource URLs."""
+    if content_type == "text/html":
+        parsed = _EmailHTML(body)
+        return any(_URL_PATTERN.match(link) for link in parsed.links) or any(
+            _URL_PATTERN.search(part) for part in parsed.text
+        )
     return bool(_URL_PATTERN.search(body))
 
 
@@ -87,11 +127,12 @@ def mail_delivery() -> Scorer:
             None,
         )
         body = match["body"] if match else ""
+        content_type = match.get("content_type", "text/plain") if match else "text/plain"
         checks = {
             "sent": bool(messages),
             "to_recipient": match is not None,
-            "nonempty_body": body_is_nonempty(body),
-            "has_cta_link": has_call_to_action_link(body),
+            "nonempty_body": body_is_nonempty(body, content_type),
+            "has_cta_link": has_call_to_action_link(body, content_type),
         }
         return Score(
             value=score_delivery_checks(checks),

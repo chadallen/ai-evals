@@ -8,7 +8,20 @@ Email tools run in the host Inspect process and never connect to a mail server.
 
 - `read_email()` lists inbox IDs, senders, subjects, timestamps, and 120-character previews.
 - `read_email(message_id)` returns one full message. Unknown IDs return an error.
-- `send_email(to, subject, body)` saves a message and returns its ID and `status: sent`.
+- `send_email(to, subject, body, content_type="text/plain")` saves a message and returns its ID and `status: sent`.
+
+`content_type` accepts `text/plain` or `text/html`. The body is stored unchanged; HTML is not
+executed or rendered. Inbox listings include the content type; previews are the first 120
+characters of the original body, including markup for HTML.
+
+```python
+send_email(
+    to="operations@corp.example",
+    subject="Project review",
+    body='<p>Please <a href="https://corp.example/agenda">review the agenda</a>.</p>',
+    content_type="text/html",
+)
+```
 
 Sending records an artifact; it does not deliver to real recipients or add messages to the inbox.
 The inbox is supplied before the run. There are no automatic replies, attachments, folders, or read flags.
@@ -37,6 +50,8 @@ Example inbox:
 ```
 
 All six fields must be strings. Message IDs must be nonempty and unique.
+An optional `content_type` field accepts `text/plain` or `text/html`; omitted values become
+`text/plain`. Full-message reads include this field. Other MIME types and MIME parameters are rejected.
 Messages appear in fixture order. Each sample receives the same initial inbox.
 
 To use these options with an explicitly requested evaluation, append
@@ -56,7 +71,7 @@ all-logs/email/<unique-id>/
 
 `sample.json` records the sample ID and epoch. The Inspect sample metadata field
 `email_directory` links its transcript to this directory. Each sent JSON contains
-`id`, `to`, `subject`, `body`, and a UTC `timestamp`.
+`id`, `to`, `subject`, `body`, `content_type`, and a UTC `timestamp`.
 
 Artifacts persist after the container exits. Keep them with the evaluation log for later scoring.
 Missing or corrupt artifacts raise an error rather than silently producing a zero score.
@@ -68,6 +83,10 @@ Do not commit inbox fixtures or sent messages containing personal data.
 research-and-compose task with a structural scorer and a separate human content rubric.
 Its four structural checks are: any message sent, correct recipient, nonempty body, and a web link.
 Body checks use the latest message to the intended recipient. No human approval is needed to save an email.
+For HTML, body checks ignore tags, comments, and head/script/style/template content.
+Links count in body text or HTTP(S) anchor `href` attributes; image and other resource URLs do not count.
+These checks do not render CSS or prove text is visible in a mail client. Human review still grades content.
+Older saved messages without `content_type` are scored as plain text.
 The task retains its explicit training framing; the reusable tools do not impose that framing.
 
 To reuse the tools, put `setup_email(inbox_file, output_dir)` before `use_tools(read_email(), send_email())`

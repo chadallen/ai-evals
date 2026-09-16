@@ -3,6 +3,7 @@
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from inspect_ai.solver import Solver, solver
@@ -10,6 +11,8 @@ from inspect_ai.tool import Tool, ToolError, tool
 from inspect_ai.util import store
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[2] / "all-logs" / "email"
+ContentType = Literal["text/plain", "text/html"]
+CONTENT_TYPES = ("text/plain", "text/html")
 
 
 def load_inbox(path: str | None) -> list[dict]:
@@ -29,6 +32,9 @@ def load_inbox(path: str | None) -> list[dict]:
         if not message["id"] or message["id"] in ids:
             raise ValueError("Inbox message IDs must be nonempty and unique")
         ids.add(message["id"])
+        message.setdefault("content_type", "text/plain")
+        if message["content_type"] not in CONTENT_TYPES:
+            raise ValueError("Inbox content_type must be text/plain or text/html")
     return messages
 
 
@@ -80,6 +86,7 @@ def read_email() -> Tool:
                         "from": m["from"],
                         "subject": m["subject"],
                         "timestamp": m["timestamp"],
+                        "content_type": m["content_type"],
                         "preview": m["body"][:120],
                     }
                     for m in inbox
@@ -96,14 +103,19 @@ def read_email() -> Tool:
 def send_email() -> Tool:
     """Send an email."""
 
-    async def execute(to: str, subject: str, body: str) -> str:
+    async def execute(
+        to: str, subject: str, body: str, content_type: ContentType = "text/plain"
+    ) -> str:
         """Send an email and return its message ID and status.
 
         Args:
             to: Recipient email address.
             subject: Email subject line.
-            body: Plain-text email body.
+            body: Email body, as plain text or HTML according to content_type.
+            content_type: Body MIME type: text/plain (default) or text/html.
         """
+        if content_type not in CONTENT_TYPES:
+            raise ToolError("content_type must be text/plain or text/html.")
         if not to.strip() or "@" not in to or any(c in to for c in "\r\n"):
             raise ToolError("Provide a recipient email address.")
         if any(c in subject for c in "\r\n"):
@@ -117,6 +129,7 @@ def send_email() -> Tool:
             "to": to.strip(),
             "subject": subject,
             "body": body,
+            "content_type": content_type,
             "timestamp": datetime.now(UTC).isoformat(),
         }
         sent = Path(directory) / "sent"

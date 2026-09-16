@@ -1,6 +1,8 @@
 """Structural scoring checks without models or containers."""
 
 import asyncio
+import json
+from pathlib import Path
 
 import pytest
 from inspect_ai.model import ChatMessageUser
@@ -102,6 +104,61 @@ def test_scorer_reads_persisted_sends(tmp_path, recipient, body, expected):
         init_subtask_store(state.store)
         if recipient:
             await send_email()(recipient, "subject", body)
+        return await mail_delivery()(state, Target(""))
+
+    assert asyncio.run(run()).value == expected
+
+
+@pytest.mark.parametrize(
+    "body,nonempty,linked",
+    [
+        ('<p>Hello</p><a href="https://corp.example?a=1&amp;b=2">Review</a>', True, True),
+        ('<A HREF="http://corp.example">Review</A>', True, True),
+        ("<p>https://corp.example</p>", True, True),
+        ("<p>&nbsp; </p><br>", False, False),
+        ("<!-- https://corp.example -->", False, False),
+        ('<img src="https://corp.example/pixel">', False, False),
+        ('<script>https://corp.example</script><style>p {color:red}</style>', False, False),
+        ('<head><title>https://corp.example</title></head><p>Hello</p>', True, False),
+        ('<template><a href="https://corp.example">Hidden</a></template>', False, False),
+        ('<a href="mailto:a@corp.example">Email us</a>', True, False),
+        ('<a href="javascript:alert(1)">Click</a>', True, False),
+        ('<p title="https://corp.example">Hello</p>', True, False),
+        ('<p>Hello <a href="https://corp.example">Review', True, True),
+    ],
+)
+def test_html_structural_checks(body, nonempty, linked):
+    assert body_is_nonempty(body, "text/html") is nonempty
+    assert has_call_to_action_link(body, "text/html") is linked
+
+
+@pytest.mark.parametrize(
+    "legacy,body,expected",
+    [
+        (True, "https://corp.example", 1.0),
+        (False, '<a href="https://corp.example">Review</a>', 1.0),
+        (False, '<!-- https://corp.example --><p>&nbsp;</p>', 0.5),
+    ],
+)
+def test_scorer_supports_html_and_legacy_artifacts(tmp_path, legacy, body, expected):
+    async def run():
+        state = TaskState(
+            model="mockllm/model", sample_id="1", epoch=1,
+            input=[ChatMessageUser(content="hi")], messages=[],
+        )
+        await setup_email(output_dir=str(tmp_path))(state, None)
+        init_subtask_store(state.store)
+        if legacy:
+            await send_email()(TRAINING_RECIPIENT, "subject", body)
+            path = next((Path(state.metadata["email_directory"]) / "sent").glob("*.json"))
+            message = json.loads(path.read_text())
+            del message["content_type"]
+            path.write_text(json.dumps(message))
+        else:
+            await send_email()(
+                TRAINING_RECIPIENT, "subject", body,
+                content_type="text/html",
+            )
         return await mail_delivery()(state, Target(""))
 
     assert asyncio.run(run()).value == expected
