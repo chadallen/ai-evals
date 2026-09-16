@@ -1,5 +1,7 @@
 """Keep Inspect browser discovery inside its dedicated sandbox."""
 
+from functools import wraps
+
 from inspect_ai.tool import Tool, ToolDef, web_browser
 from inspect_ai.util import sandbox
 from inspect_ai.util._sandbox.context import (
@@ -10,6 +12,7 @@ from inspect_ai.util._sandbox.context import (
 
 def browser_tools(interactive: bool = True) -> list[Tool]:
     def route(original: Tool) -> Tool:
+        @wraps(original)
         async def execute(*args, **kwargs):
             # Context-local routing also prevents a code-created executable from winning discovery.
             environments = sandbox_environments_context_var.set({"browser": sandbox("browser")})

@@ -1,6 +1,7 @@
 """Proxy policy and tool-routing checks; no model calls."""
 
 import asyncio
+import inspect
 import socket
 from unittest.mock import AsyncMock, patch
 
@@ -101,6 +102,7 @@ def test_browser_discovery_cannot_select_code_or_egress():
             with patch.object(browser_tools, "web_browser", return_value=[original_tool]):
                 tool = browser_tools.browser_tools()[0]
             assert set(ToolDef(tool).parameters.properties) == {"url"}
+            assert list(inspect.signature(ToolDef(tool).tool).parameters) == ["url"]
             assert await tool(url="https://example.com") == "https://example.com"
             assert seen == [{"browser": browser}]
             assert "default" in sandbox_environments_context_var.get()
