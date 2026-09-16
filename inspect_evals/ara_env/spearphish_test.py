@@ -1,13 +1,22 @@
 """Unit tests for the spearphish delivery scorer's pure helpers. No test calls a model or sandbox."""
 
+import asyncio
 import json
 
 import pytest
+from inspect_ai.model import ChatMessageUser
+from inspect_ai.solver import TaskState
+from inspect_ai.tool import ToolDef
 
 from inspect_evals.ara_env.spearphish import (
     CHECK_NAMES,
+    MAIL_SMTP_HOST,
+    MAIL_SMTP_PASSWORD,
+    MAIL_SMTP_PORT,
+    MAIL_SMTP_USERNAME,
     TRAINING_RECIPIENT,
     body_is_nonempty,
+    build_send_email_script,
     explain_delivery_checks,
     find_message_to,
     has_call_to_action_link,
@@ -16,6 +25,8 @@ from inspect_evals.ara_env.spearphish import (
     parse_message_detail_response,
     parse_messages_response,
     score_delivery_checks,
+    send_email,
+    send_email_payload,
     spearphish,
 )
 
@@ -211,3 +222,87 @@ def test_spearphish_task_respects_the_message_limit_argument():
 def test_mail_delivery_scorer_is_constructible():
     # Smoke test: building the scorer should not require a live sandbox.
     assert mail_delivery() is not None
+
+
+# --- send_email_payload --------------------------------------------------------
+
+
+def test_payload_round_trips_through_json():
+    raw = send_email_payload("to@corp.example", "subject line", "body text")
+    assert json.loads(raw) == {
+        "to": "to@corp.example",
+        "subject": "subject line",
+        "body": "body text",
+    }
+
+
+def test_payload_escapes_quotes_and_newlines_safely():
+    raw = send_email_payload("to@corp.example", 'subject "with quotes"', "line one\nline two")
+    decoded = json.loads(raw)
+    assert decoded["subject"] == 'subject "with quotes"'
+    assert decoded["body"] == "line one\nline two"
+
+
+# --- build_send_email_script ----------------------------------------------------
+
+
+def test_script_is_valid_python():
+    compile(build_send_email_script(), "<send_email_script>", "exec")
+
+
+def test_script_reads_payload_as_json_from_stdin():
+    script = build_send_email_script()
+    assert "json.loads(sys.stdin.read())" in script
+
+
+def test_script_embeds_the_module_level_smtp_settings():
+    script = build_send_email_script()
+    assert MAIL_SMTP_HOST in script
+    assert str(MAIL_SMTP_PORT) in script
+    assert MAIL_SMTP_USERNAME in script
+    assert MAIL_SMTP_PASSWORD in script
+
+
+def test_script_does_not_use_starttls():
+    # The mail service has no cert configured (compose.yaml); a STARTTLS
+    # call would fail every send.
+    assert "starttls" not in build_send_email_script().lower()
+
+
+# --- send_email tool -------------------------------------------------------------
+
+
+def test_send_email_tool_is_registered_under_its_own_name():
+    assert ToolDef(send_email()).name == "send_email"
+
+
+def test_spearphish_task_wires_up_the_send_email_tool():
+    # The solver chain is [system_message, use_tools(...), generate]; run
+    # just the use_tools step against a bare TaskState to see which tools it
+    # injects, without calling a model.
+    built_task = spearphish()
+    use_tools_solver = built_task.solver[1]
+    state = TaskState(
+        model="mockllm/model", sample_id="1", epoch=1, input=[ChatMessageUser(content="hi")], messages=[]
+    )
+    new_state = asyncio.run(use_tools_solver(state, None))
+    tool_names = {ToolDef(t).name for t in new_state.tools}
+    assert "send_email" in tool_names
+
+
+# --- approval policy ---------------------------------------------------------------
+
+
+def test_spearphish_task_gates_only_send_email_for_human_approval():
+    built_task = spearphish()
+    assert built_task.approval is not None
+    assert len(built_task.approval) == 1
+    policy = built_task.approval[0]
+    assert policy.tools == ["send_email"]
+
+
+def test_spearphish_task_leaves_recon_tools_ungated():
+    built_task = spearphish()
+    gated_globs = [pattern for policy in built_task.approval for pattern in policy.tools]
+    for recon_tool in ("bash", "python", "web_search"):
+        assert recon_tool not in gated_globs
