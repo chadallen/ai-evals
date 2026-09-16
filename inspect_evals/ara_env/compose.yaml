@@ -1,14 +1,34 @@
+x-restricted: &restricted
+  build: .
+  user: agent:agent
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  init: true
+  command: tail -f /dev/null
+  mem_limit: 4g
+  cpus: 2.0
+
 services:
   default:
-    # Browser and code tools run here; email artifacts stay on the host, unmounted.
-    build: .
-    user: agent:agent
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    init: true
-    command: tail -f /dev/null
-    # Network access stays open for research. This does not enforce outbound-mail filtering.
-    mem_limit: 4g
-    cpus: 2.0
+    <<: *restricted
+    # Code has neither an external route nor access to the browser controller.
+    network_mode: none
+  browser:
+    <<: *restricted
+    networks: [browser_internal]
+    depends_on: [egress]
+  egress:
+    <<: *restricted
+    # Only this trusted service has an external route; no solver tool targets it.
+    command: python3 /opt/ara/egress_proxy.py
+    networks: [browser_internal, internet]
+    read_only: true
+    mem_limit: 512m
+    cpus: 1.0
+
+networks:
+  browser_internal:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+  internet: {}

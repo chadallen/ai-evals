@@ -12,9 +12,10 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+import yaml
 from inspect_ai.model import ChatMessageUser
 from inspect_ai.solver import TaskState
-from inspect_ai.tool import bash, python, web_browser
+from inspect_ai.tool import ToolDef, ToolError, bash, python
 from inspect_ai.util._sandbox.context import (
     sandbox_default_context_var,
     sandbox_environments_context_var,
@@ -24,6 +25,7 @@ from inspect_ai.util._sandbox.docker.docker import DockerSandboxEnvironment
 from inspect_ai.util._sandbox.docker.util import ComposeProject
 from inspect_ai.util._store import init_subtask_store
 
+from inspect_evals.ara_env.browser_tools import browser_tools
 from inspect_evals.ara_env.email_tools import read_email, send_email, sent_messages, setup_email
 
 COMPOSE = Path(__file__).with_name("compose.yaml")
@@ -32,21 +34,60 @@ COMPOSE = Path(__file__).with_name("compose.yaml")
 @pytest.mark.skipif(os.environ.get("ARA_DOCKER_TEST") != "1", reason="Requires local Docker")
 def test_nonroot_tools_and_privilege_boundary(tmp_path):
     project_name = f"ara-user-check-{uuid4().hex[:8]}"
-    command = ["docker", "compose", "-p", project_name, "-f", str(COMPOSE)]
+    config = yaml.safe_load(COMPOSE.read_text())
+    for service in config["services"].values():
+        service["build"] = str(COMPOSE.parent)
+    # The public-looking address is a disposable Docker fixture, never an Internet request.
+    config["networks"]["internet"]["ipam"] = {"config": [{"subnet": "93.184.216.0/24"}]}
+    config["services"]["egress"]["extra_hosts"] = [
+        "public.test:93.184.216.34",
+        "private.test:127.0.0.1",
+    ]
+    config["services"]["browser"]["environment"] = {"IGNORE_HTTPS_ERRORS": "1"}
+    config["services"]["fixture"] = {
+        "build": str(COMPOSE.parent),
+        "user": "agent:agent",
+        "cap_drop": ["ALL"],
+        "security_opt": ["no-new-privileges:true"],
+        "networks": {"internet": {"ipv4_address": "93.184.216.34"}},
+        "command": ["python3", "-c", FIXTURE],
+    }
+    compose = tmp_path / "compose.yaml"
+    compose.write_text(yaml.safe_dump(config))
+    command = ["docker", "compose", "-p", project_name, "-f", str(compose)]
     try:
         subprocess.run([*command, "up", "--build", "-d"], check=True)
-        asyncio.run(check_tools(project_name, tmp_path))
-        container = subprocess.check_output([*command, "ps", "-q", "default"], text=True).strip()
-        info = json.loads(subprocess.check_output(["docker", "inspect", container], text=True))[0]
-        assert info["Mounts"] == []
+        asyncio.run(check_tools(project_name, tmp_path, compose))
+        for service in ("default", "browser", "egress"):
+            container = subprocess.check_output([*command, "ps", "-q", service], text=True).strip()
+            info = json.loads(subprocess.check_output(["docker", "inspect", container], text=True))[
+                0
+            ]
+            assert info["Mounts"] == []
+            assert info["Config"]["User"] == "agent:agent"
+            assert info["HostConfig"]["CapDrop"] == ["ALL"]
+            assert "no-new-privileges:true" in info["HostConfig"]["SecurityOpt"]
+            assert not info["HostConfig"]["PortBindings"]
+            if service == "default":
+                assert info["HostConfig"]["NetworkMode"] == "none"
+            if service == "egress":
+                assert info["HostConfig"]["ReadonlyRootfs"]
+        network = json.loads(
+            subprocess.check_output(
+                ["docker", "network", "inspect", f"{project_name}_browser_internal"], text=True
+            )
+        )[0]
+        assert network["Internal"]
+        assert network["Options"]["com.docker.network.bridge.gateway_mode_ipv4"] == "isolated"
     finally:
         subprocess.run([*command, "down", "--volumes", "--rmi", "local"], check=True)
 
 
-async def check_tools(project_name, tmp_path):
-    project = await ComposeProject.create(project_name, str(COMPOSE))
+async def check_tools(project_name, tmp_path, compose):
+    project = await ComposeProject.create(project_name, str(compose))
     environment = DockerSandboxEnvironment("default", project, "/home/agent/workspace")
-    context = sandbox_environments_context_var.set({"default": environment})
+    browser = DockerSandboxEnvironment("browser", project, "/home/agent/workspace")
+    context = sandbox_environments_context_var.set({"default": environment, "browser": browser})
     default = sandbox_default_context_var.set("default")
     injection = sandbox_with_environments_context_var.set({})
     state = TaskState(
@@ -91,24 +132,50 @@ print("permissions verified")
         )
         assert not privileged.success
 
-        await environment.write_file(
-            "index.html",
-            """<html><body>
-<button onclick="document.getElementById('result').textContent='Interaction passed'">Verify</button>
-<p id="result">Ready</p></body></html>""",
+        # Both real code tools are fixed to default; destination is absent from their schemas.
+        assert set(ToolDef(bash(sandbox="default")).parameters.properties) == {"command"}
+        assert set(ToolDef(python(sandbox="default")).parameters.properties) == {"code"}
+        offline = await python(sandbox="default")(OFFLINE_PROBE)
+        assert "offline verified" in offline, offline
+        shell_offline = await bash(sandbox="default")(
+            "curl --max-time 2 http://93.184.216.34; test $? -ne 0 && echo shell-offline"
         )
-        started = await environment.exec(
-            ["sh", "-c", "python3 -m http.server 8765 --bind 127.0.0.1 >/tmp/http.log 2>&1 &"],
-            timeout=10,
+        assert "shell-offline" in shell_offline
+        # A fake discovery executable in code must not hijack browser routing.
+        await environment.exec(
+            [
+                "sh",
+                "-c",
+                "mkdir -p /home/agent/bin; printf '#!/bin/sh\\necho hijacked\\n' > /home/agent/bin/inspect-tool-support; chmod +x /home/agent/bin/inspect-tool-support",
+            ]
         )
-        assert started.success
-        tools = web_browser()
-        page = str(await tools[0]("http://127.0.0.1:8765"))
+        tools = browser_tools()
+        secure_page = str(await tools[0]("https://public.test"))
+        assert "Verify" in secure_page, secure_page
+        page = str(await tools[0]("http://public.test"))
         assert "Verify" in page, page
         button = re.search(r"\[(\d+)\][^\n]*button[^\n]*Verify", page)
         assert button, page
         clicked = str(await tools[1](int(button.group(1))))
         assert "Interaction passed" in clicked, clicked
+        for url in [
+            "http://127.0.0.1",
+            "http://private.test",
+            "http://169.254.169.254",
+            "http://host.docker.internal",
+            "http://10.0.0.1",
+            "http://[::1]",
+            "http://public.test/redirect",
+            "http://public.test:25",
+        ]:
+            try:
+                blocked = str(await tools[0](url))
+            except ToolError as exc:
+                blocked = str(exc)
+            assert "Verify" not in blocked, blocked
+            assert "403" in blocked or "ERR_" in blocked or "Forbidden" in blocked, blocked
+        raw = await browser.exec(["python3", "-c", BROWSER_PROBE], timeout=20)
+        assert raw.success and "browser direct blocked" in raw.stdout, raw.stderr
 
         await setup_email(output_dir=str(tmp_path))(state, None)
         assert json.loads(await read_email()()) == {"messages": [], "total": 0}
@@ -121,3 +188,85 @@ print("permissions verified")
         sandbox_environments_context_var.reset(context)
         sandbox_default_context_var.reset(default)
         sandbox_with_environments_context_var.reset(injection)
+
+
+FIXTURE = """
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import ssl, subprocess, threading
+subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "/tmp/key.pem", "-out", "/tmp/cert.pem", "-days", "1", "-subj", "/CN=public.test"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/redirect':
+            self.send_response(302)
+            self.send_header('Location', 'http://private.test/')
+            self.end_headers()
+            return
+        body = b'<button onclick="this.textContent=\\'Interaction passed\\'">Verify</button>'
+        self.send_response(200)
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+tls = HTTPServer(('0.0.0.0',443), Handler)
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+ctx.load_cert_chain('/tmp/cert.pem', '/tmp/key.pem')
+tls.socket = ctx.wrap_socket(tls.socket, server_side=True)
+threading.Thread(target=tls.serve_forever, daemon=True).start()
+HTTPServer(('0.0.0.0',80), Handler).serve_forever()
+"""
+
+OFFLINE_PROBE = """
+import socket
+from pathlib import Path
+assert not Path('/var/run/docker.sock').exists()
+assert not Path('/run/docker.sock').exists()
+for host, port in [('93.184.216.34',80), ('1.1.1.1',443), ('127.0.0.1',3128),
+                   ('192.168.65.1',80), ('169.254.169.254',80), ('1.1.1.1',25)]:
+    try:
+        socket.create_connection((host,port), timeout=0.5)
+    except OSError:
+        pass
+    else:
+        raise AssertionError((host,port))
+for host in ['browser','egress','public.test','example.com','host.docker.internal']:
+    try:
+        socket.getaddrinfo(host,80)
+    except OSError:
+        pass
+    else:
+        raise AssertionError(host)
+for kind in [socket.SOCK_STREAM, socket.SOCK_DGRAM]:
+    s=socket.socket(socket.AF_INET,kind)
+    s.settimeout(0.5)
+    try:
+        s.connect(('1.1.1.1',53))
+        s.send(b'probe')
+    except OSError:
+        pass
+    else:
+        raise AssertionError('DNS reachable')
+    finally:
+        s.close()
+print('offline verified')
+"""
+
+BROWSER_PROBE = """
+import socket
+from pathlib import Path
+assert not Path('/var/run/docker.sock').exists()
+for host in ['93.184.216.34','1.1.1.1','192.168.65.1','169.254.169.254']:
+    try:
+        socket.create_connection((host,80), timeout=1)
+    except OSError:
+        pass
+    else:
+        raise AssertionError(host)
+for target in ['127.0.0.1:443','private.test:443','169.254.169.254:443','public.test:25', 'public.test:22']:
+    with socket.create_connection(('egress',3128), timeout=3) as s:
+        s.sendall(('CONNECT ' + target + ' HTTP/1.1\\r\\nHost: '+target+'\\r\\n\\r\\n').encode())
+        assert b'403 Forbidden' in s.recv(4096), target
+status = Path('/proc/self/status').read_text()
+assert 'NoNewPrivs:\\t1' in status
+assert 'CapEff:\\t0000000000000000' in status
+assert 'CapBnd:\\t0000000000000000' in status
+print('browser direct blocked')
+"""

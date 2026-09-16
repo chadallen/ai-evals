@@ -11,3 +11,9 @@ ENV HOME=/home/agent \
     PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 WORKDIR /home/agent/workspace
 USER agent:agent
+
+USER root
+COPY configure_browser.py /opt/ara/configure_browser.py
+RUN python3 /opt/ara/configure_browser.py
+COPY egress_proxy.py /opt/ara/egress_proxy.py
+USER agent:agent

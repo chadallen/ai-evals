@@ -1,7 +1,8 @@
 # ARA environment
 
 The environment provides shell, Python, browser, web search, and email tools.
-Shell, Python, and browser tools run in a Docker container. Web search uses Tavily.
+Shell and Python run in an offline Docker container. Chromium runs in a separate container
+with public web access through an egress proxy. Web search uses Tavily on the host.
 Email tools run in the host Inspect process and never connect to a mail server.
 
 ## Email interface
@@ -98,8 +99,8 @@ The prompt appears in Inspect's interactive display or console when running the 
 
 The human policy precedes a catch-all that automatically approves other tools, including
 `python`, `read_email`, and `send_email`. The `ara_env` wiring task has no approval gates.
-These gates select tool names, not network operations: Python still has network access and
-can launch subprocesses without a bash-tool prompt. Network containment remains separate work.
+These gates select tool names, not subprocesses: Python can launch shell commands without a
+bash-tool prompt. Both code tools remain offline regardless of approval.
 
 To reuse the tools, put `setup_email(inbox_file, output_dir)` before `use_tools(read_email(), send_email())`
 in a task's solver chain. Add the other tools the task requires.
@@ -116,12 +117,49 @@ The container runs as `agent` (UID 1000), with all Linux capabilities dropped an
 `/opt/ms-playwright`, owned by root and readable by the agent. Installing system packages
 requires rebuilding the image; the solver cannot become root to install them.
 
-Inspect's pinned browser launcher uses Playwright's default Chromium sandbox setting
-(disabled). This configuration does not enable Chromium's internal sandbox or add browser
-launch exceptions. The non-root user and Docker restrictions are the containment boundary.
+### Network policy
 
-Network access remains open for research. There is no outbound SMTP filter. These email tools do not constrain what shell or browser tools
-can do over the network. Restricting those tools is a separate environment decision.
+| Component | Execution environment | Permitted network use |
+|---|---|---|
+| Bash and Python | `default` container | None; `network_mode: none` |
+| Browser tools | `browser` container | Public IPv4 HTTP port 80 and HTTPS port 443 through proxy |
+| Egress proxy | `egress` container | Resolves and connects to checked public web destinations |
+| Tavily search | Host Inspect process | Host requests to Tavily |
+| Email | Host Inspect process | None; local JSON artifacts |
+
+Inspect fixes bash and Python to `default`; the agent cannot supply a sandbox name.
+Browser tool wrappers restrict Inspect's service discovery to `browser`, including its discovery cache.
+No solver tool executes code in `browser` or `egress`. No container mounts or published ports exist.
+
+The browser connects only to an internal Docker bridge. Its `isolated` gateway mode removes the
+host bridge address; it has no external default route. Only the proxy joins an external network.
+This requires Docker Engine 28 or newer. Unsupported network configuration must fail at startup;
+do not replace `isolated` with an ordinary bridge to make an older Docker version work.
+The proxy has a read-only filesystem and retains the same dropped capabilities and non-root user.
+
+The launcher directs browser requests, including loopback URLs, through the proxy.
+For each connection, the proxy resolves the name, rejects non-public addresses, and connects to the
+checked numeric address. Mixed public/private answers are rejected. New connections resolve and check
+again, so a hostname cannot change to a private address after an earlier successful request.
+Redirects and subresources go through the same checks. IPv6 and special-use IPv4 ranges are denied.
+HTTP uses port 80; CONNECT tunnels use port 443. SMTP/SSH ports and alternate web ports are denied.
+The proxy does not decrypt HTTPS or prove that every byte on port 443 is HTTP.
+
+This preserves live research, including forms, uploads, webhooks, and HTTP mail APIs on permitted
+public destinations. Search queries and URLs can disclose data. It is not read-only browsing or
+an exfiltration-prevention policy. Human approval gates still apply to the spearphish browser/search tools.
+Docker's service DNS supports the browser/proxy connection; browser-selected public hostnames and
+Tavily queries are accepted external channels. Host/private destinations are blocked, not public
+services deliberately exposed on the internet by the operator.
+
+Offline code cannot install packages from the internet, fetch datasets, call APIs, or reach the
+browser controller. Dependencies must be built into the image. Browser downloads stay in the browser
+container; no automatic file-transfer bridge exists. Neither existing task needs one.
+
+The pinned launcher retains Playwright's disabled Chromium internal sandbox. Enabling it with
+`chromium_sandbox=True` failed with `No usable sandbox!` under the retained Docker restrictions.
+No privileges or seccomp restrictions were relaxed. Docker isolation, the non-root user, and the
+separate proxy remain protection layers; they do not replace Chromium's missing internal sandbox.
 
 ## Validation
 
@@ -132,9 +170,12 @@ venv/bin/ruff check .
 
 Tests exercise the actual email tools and persisted-artifact scorer without model calls or containers.
 
-The opt-in integration check builds a disposable container and calls the actual Inspect shell,
-Python, and browser tools. It verifies a local page interaction, denied root escalation,
-and host-only email artifacts. It makes no model calls and removes the container afterward.
+The opt-in integration check builds disposable code, browser, proxy, and controlled website containers.
+It calls actual Inspect shell, Python, and browser tools, checks HTTP/HTTPS navigation and clicks,
+and probes blocked public/private/DNS/protocol paths. It checks denied root escalation and host-only
+email artifacts. The fixture uses a public-looking address on an isolated test network; no external
+website or model is contacted. Unit tests cover name-resolution changes, fixed tool routing, and
+Tavily HTTP responses with a mock transport. All test containers are removed afterward.
 
 ```sh
 ARA_DOCKER_TEST=1 venv/bin/pytest inspect_evals/ara_env/nonroot_test.py -s
