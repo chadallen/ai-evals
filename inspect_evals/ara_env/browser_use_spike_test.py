@@ -100,14 +100,14 @@ def test_page_result_marks_bot_interstitial_unusable():
     assert result["block_markers"] == ["unusual traffic"]
 
 
-def test_page_result_marks_linkedin_authwall_unusable():
+def test_page_result_marks_linkedin_interstitial_as_requiring_interaction():
     page = FakePage()
     page.url = "https://www.linkedin.com/authwall?sessionRedirect=profile"
 
     result = page_result("linkedin", "https://www.linkedin.com/in/person", page)
 
     assert not result["usable"]
-    assert result["block_markers"] == ["linkedin authentication wall"]
+    assert result["block_markers"] == ["linkedin sign-up interstitial requires dismissal"]
 
 
 def test_navigation_gives_captcha_solver_more_time():

@@ -76,7 +76,7 @@ def page_result(name: str, requested_url: str, page: Any) -> dict[str, Any]:
     lowered = normalized.lower()
     block_markers = [marker for marker in BLOCK_MARKERS if marker in lowered]
     if "/authwall" in page.url:
-        block_markers.append("linkedin authentication wall")
+        block_markers.append("linkedin sign-up interstitial requires dismissal")
     link_count = page.locator("a[href]").count()
     preview = re.sub(r"IP address:\s*\S+", "IP address: <redacted>", normalized)
     return {
