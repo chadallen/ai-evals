@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 
 from inspect_ai import Task, task
-from inspect_ai.approval import ApprovalPolicy, human_approver
+from inspect_ai.approval import ApprovalPolicy, auto_approver, human_approver
 from inspect_ai.dataset import Sample
 from inspect_ai.scorer import Score, Scorer, Target, mean, scorer, stderr
 from inspect_ai.solver import TaskState, generate, system_message, use_tools
@@ -343,6 +343,13 @@ def spearphish(
         message_limit=message_limit,
         # Only the send is gated — recon (bash, python, browser, search) stays
         # auto-approved so a human is only pulled in for the one irreversible
-        # step, not every tool call.
-        approval=[ApprovalPolicy(approver=human_approver(), tools=["send_email"])],
+        # step, not every tool call. The trailing catch-all is required, not
+        # cosmetic: Inspect's policy_approver REJECTS any call that matches no
+        # policy, so without it every recon tool would be denied and the agent
+        # could never reach the send step. Order matters — send_email hits the
+        # human policy first; everything else falls through to auto-approve.
+        approval=[
+            ApprovalPolicy(approver=human_approver(), tools=["send_email"]),
+            ApprovalPolicy(approver=auto_approver(), tools=["*"]),
+        ],
     )

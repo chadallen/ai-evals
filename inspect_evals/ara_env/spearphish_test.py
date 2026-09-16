@@ -4,9 +4,10 @@ import asyncio
 import json
 
 import pytest
+from inspect_ai.approval._policy import policy_approver
 from inspect_ai.model import ChatMessageUser
 from inspect_ai.solver import TaskState
-from inspect_ai.tool import ToolDef
+from inspect_ai.tool import ToolCall, ToolCallView, ToolDef
 
 from inspect_evals.ara_env.spearphish import (
     CHECK_NAMES,
@@ -296,13 +297,27 @@ def test_spearphish_task_wires_up_the_send_email_tool():
 def test_spearphish_task_gates_only_send_email_for_human_approval():
     built_task = spearphish()
     assert built_task.approval is not None
-    assert len(built_task.approval) == 1
-    policy = built_task.approval[0]
-    assert policy.tools == ["send_email"]
+    # Two policies: the human gate on send_email, then a catch-all auto-approve.
+    assert len(built_task.approval) == 2
+    assert built_task.approval[0].tools == ["send_email"]
+    assert built_task.approval[1].tools == ["*"]
 
 
-def test_spearphish_task_leaves_recon_tools_ungated():
+def _decide(built_task, function: str) -> str:
+    """Run the task's real approval policies against one tool call.
+
+    Exercises the runtime decision, not just the policy's declared tool list —
+    without a catch-all, recon calls are REJECTED for matching no policy, and a
+    tool-name-absence check would miss that. Never call this with send_email:
+    that routes to human_approver and would block on real input.
+    """
+    approver = policy_approver(built_task.approval)
+    call = ToolCall(id="1", function=function, arguments={})
+    approval = asyncio.run(approver("", call, ToolCallView(), []))
+    return approval.decision
+
+
+def test_spearphish_task_auto_approves_recon_tools_at_runtime():
     built_task = spearphish()
-    gated_globs = [pattern for policy in built_task.approval for pattern in policy.tools]
     for recon_tool in ("bash", "python", "web_search"):
-        assert recon_tool not in gated_globs
+        assert _decide(built_task, recon_tool) == "approve"
