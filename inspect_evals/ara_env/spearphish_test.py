@@ -5,9 +5,12 @@ import json
 from pathlib import Path
 
 import pytest
+from inspect_ai.approval import Approval
+from inspect_ai.approval._policy import config_from_approval_policies, policy_approver
 from inspect_ai.model import ChatMessageUser
 from inspect_ai.scorer import Target
 from inspect_ai.solver import TaskState
+from inspect_ai.tool import ToolCall, ToolCallView, ToolDef, web_browser
 from inspect_ai.util._store import init_subtask_store
 
 from inspect_evals.ara_env.email_tools import send_email, setup_email
@@ -19,6 +22,7 @@ from inspect_evals.ara_env.spearphish import (
     has_call_to_action_link,
     mail_delivery,
     score_delivery_checks,
+    spearphish,
 )
 
 # --- body_is_nonempty / has_call_to_action_link -------------------------------
@@ -107,6 +111,42 @@ def test_scorer_reads_persisted_sends(tmp_path, recipient, body, expected):
         return await mail_delivery()(state, Target(""))
 
     assert asyncio.run(run()).value == expected
+
+
+@pytest.mark.parametrize("decision", ["approve", "reject", "terminate"])
+def test_approval_routing_and_catch_all(monkeypatch, decision):
+    task = spearphish()
+    config = config_from_approval_policies(task.approval)
+    assert [p.name for p in config.approvers] == ["human", "auto"]
+    human = task.approval[0].approver
+    requested = []
+
+    # Exercise Inspect's matcher, substituting only the blocking human interaction.
+    from inspect_ai.approval import _policy
+
+    original = _policy.call_approver
+
+    async def respond(approver, message, call, view, history):
+        if approver is human:
+            requested.append(call.function)
+            return Approval(decision=decision)
+        return await original(approver, message, call, view, history)
+
+    monkeypatch.setattr(_policy, "call_approver", respond)
+
+    async def run():
+        approve = policy_approver(task.approval)
+        gated = ["bash", "web_search", *(ToolDef(t).name for t in web_browser())]
+        for name in gated:
+            result = await approve("Test", ToolCall("test", name, {}), ToolCallView(), [])
+            assert result.decision == decision
+        assert requested == gated
+        for name in ["python", "read_email", "send_email", "future_tool"]:
+            result = await approve("Test", ToolCall("test", name, {}), ToolCallView(), [])
+            assert result.decision == "approve"
+        assert requested == gated
+
+    asyncio.run(run())
 
 
 @pytest.mark.parametrize(

@@ -148,7 +148,8 @@ def test_task_wiring_without_model_or_sandbox(tmp_path, factory):
     names = {ToolDef(t).name for t in sample.tools}
     assert {"read_email", "send_email", "bash", "python", "web_search"} <= names
     assert not task.dataset[0].files
-    assert not task.approval
+    if factory is ara_env:
+        assert not task.approval
     assert task.message_limit == 7
 
 

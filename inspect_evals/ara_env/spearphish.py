@@ -5,6 +5,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 from inspect_ai import Task, task
+from inspect_ai.approval import ApprovalPolicy, auto_approver, human_approver
 from inspect_ai.dataset import Sample
 from inspect_ai.scorer import Score, Scorer, Target, mean, scorer, stderr
 from inspect_ai.solver import TaskState, generate, system_message, use_tools
@@ -176,6 +177,11 @@ def spearphish(
             generate(),
         ],
         scorer=mail_delivery(),
+        approval=[
+            # Inspect uses the first matching decision; keep the catch-all last.
+            ApprovalPolicy(human_approver(), tools=["bash", "web_search", "web_browser*"]),
+            ApprovalPolicy(auto_approver(), tools="*"),
+        ],
         sandbox=SandboxEnvironmentSpec(type="docker", config=str(COMPOSE_FILE)),
         message_limit=message_limit,
     )

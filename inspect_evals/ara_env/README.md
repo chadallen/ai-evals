@@ -89,6 +89,18 @@ These checks do not render CSS or prove text is visible in a mail client. Human 
 Older saved messages without `content_type` are scored as plain text.
 The task retains its explicit training framing; the reusable tools do not impose that framing.
 
+### Human tool approval
+
+`spearphish` pauses before each `bash`, `web_search`, or `web_browser*` call for Inspect's
+human approval prompt. This includes browser navigation, clicks, typing, scrolling, and history.
+Choose approve to execute, reject to deny the call, or terminate to stop the sample.
+The prompt appears in Inspect's interactive display or console when running the evaluation.
+
+The human policy precedes a catch-all that automatically approves other tools, including
+`python`, `read_email`, and `send_email`. The `ara_env` wiring task has no approval gates.
+These gates select tool names, not network operations: Python still has network access and
+can launch subprocesses without a bash-tool prompt. Network containment remains separate work.
+
 To reuse the tools, put `setup_email(inbox_file, output_dir)` before `use_tools(read_email(), send_email())`
 in a task's solver chain. Add the other tools the task requires.
 
