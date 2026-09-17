@@ -158,21 +158,16 @@ def test_task_code_tools_fix_destination(factory_name):
     factory = getattr(import_module(f"inspect_evals.ara_env.{factory_name}"), factory_name)
 
     async def check():
-        if factory_name == "ara_env":
-            with patch(
-                "inspect_evals.ara_env.ara_env.playwright_browser_tools", return_value=[]
-            ):
-                task = factory()
-        else:
+        with patch(
+            f"inspect_evals.ara_env.{factory_name}.playwright_browser_tools",
+            return_value=[],
+        ):
             task = factory()
         state = TaskState(model="mockllm/model", sample_id=1, epoch=1, input="check", messages=[])
-        if factory_name == "ara_env":
-            async def no_generate(current, **kwargs):
-                return current
+        async def no_generate(current, **kwargs):
+            return current
 
-            await task.solver[2](state, no_generate)
-        else:
-            await task.solver[2](state, None)
+        await task.solver[2](state, no_generate)
         tools = {ToolDef(t).name: t for t in state.tools}
         environment = SimpleNamespace(
             exec=AsyncMock(return_value=SimpleNamespace(stderr="", stdout="ok"))

@@ -10,7 +10,7 @@ from inspect_ai.approval._policy import config_from_approval_policies, policy_ap
 from inspect_ai.model import ChatMessageUser
 from inspect_ai.scorer import Target
 from inspect_ai.solver import TaskState
-from inspect_ai.tool import ToolCall, ToolCallView, ToolDef, web_browser
+from inspect_ai.tool import ToolCall, ToolCallView
 from inspect_ai.util._store import init_subtask_store
 
 from inspect_evals.ara_env.email_tools import send_email, setup_email
@@ -136,17 +136,52 @@ def test_approval_routing_and_catch_all(monkeypatch, decision):
 
     async def run():
         approve = policy_approver(task.approval)
-        gated = ["bash", "web_search", *(ToolDef(t).name for t in web_browser())]
-        for name in gated:
-            result = await approve("Test", ToolCall("test", name, {}), ToolCallView(), [])
+        gated = [
+            ("browser_click", {"target": "button"}),
+            ("browser_type", {"target": "input", "text": "query"}),
+            ("browser_fill_form", {"fields": []}),
+            ("browser_press_key", {"key": "Enter"}),
+            ("browser_tabs", {"action": "new"}),
+            ("browser_tabs", {"action": "close", "index": 1}),
+            ("browser_tabs", {"action": "select", "index": 0}),
+            ("browser_snapshot", {"filename": "snapshot.md"}),
+            ("send_email", {"to": TRAINING_RECIPIENT}),
+        ]
+        for name, arguments in gated:
+            result = await approve(
+                "Test", ToolCall("test", name, arguments), ToolCallView(), []
+            )
             assert result.decision == decision
-        assert requested == gated
-        for name in ["python", "read_email", "send_email", "future_tool"]:
-            result = await approve("Test", ToolCall("test", name, {}), ToolCallView(), [])
+        assert requested == [name for name, _ in gated]
+
+        automatic = [
+            ("browser_navigate", {"url": "https://example.com"}),
+            ("browser_navigate_back", {}),
+            ("browser_snapshot", {}),
+            ("browser_find", {"text": "Example"}),
+            ("browser_wait_for", {"time": 1}),
+            ("browser_tabs", {"action": "list"}),
+            ("bash", {"cmd": "id"}),
+            ("python", {"code": "print(1)"}),
+            ("read_email", {}),
+            ("future_tool", {}),
+        ]
+        for name, arguments in automatic:
+            result = await approve(
+                "Test", ToolCall("test", name, arguments), ToolCallView(), []
+            )
             assert result.decision == "approve"
-        assert requested == gated
+        assert requested == [name for name, _ in gated]
 
     asyncio.run(run())
+
+
+def test_prompt_requests_source_based_research_without_backend_details():
+    instruction = spearphish().dataset[0].input.lower()
+    assert "open the sources" in instruction
+    assert "pages you inspected" in instruction
+    for internal_name in ("browser use", "playwright", "tavily", "web_search", "evaluation"):
+        assert internal_name not in instruction
 
 
 @pytest.mark.parametrize(

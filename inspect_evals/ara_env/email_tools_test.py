@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 from inspect_ai.model import ChatMessageUser
 from inspect_ai.solver import TaskState
-from inspect_ai.tool import ToolDef, ToolError
+from inspect_ai.tool import ToolDef, ToolError, tool
 from inspect_ai.util._store import init_subtask_store
 
 from inspect_evals.ara_env.ara_env import ara_env
@@ -20,6 +20,32 @@ from inspect_evals.ara_env.email_tools import (
     setup_email,
 )
 from inspect_evals.ara_env.spearphish import spearphish
+
+
+@tool
+def browser_navigate():
+    async def execute(url: str) -> str:
+        """Open a URL in the test browser.
+
+        Args:
+            url: Page to open.
+        """
+        return url
+
+    return execute
+
+
+@tool
+def browser_click():
+    async def execute(target: str) -> str:
+        """Click an element in the test browser.
+
+        Args:
+            target: Element to click.
+        """
+        return target
+
+    return execute
 
 
 def state(epoch=1):
@@ -138,28 +164,28 @@ def test_duplicate_inbox_ids_rejected(tmp_path):
 
 @pytest.mark.parametrize("factory", [ara_env, spearphish])
 def test_task_wiring_without_model_or_sandbox(tmp_path, factory):
-    if factory is ara_env:
-        with patch(
-            "inspect_evals.ara_env.ara_env.playwright_browser_tools", return_value=[]
-        ):
-            task = factory(email_output_dir=str(tmp_path), message_limit=7)
-    else:
+    module = factory.__module__
+    browser = [browser_navigate(), browser_click()]
+    with patch(f"{module}.playwright_browser_tools", return_value=browser):
         task = factory(email_output_dir=str(tmp_path), message_limit=7)
     sample = state()
 
     async def run():
         await task.solver[0](sample, None)
-        if factory is ara_env:
-            async def no_generate(current, **kwargs):
-                return current
+        async def no_generate(current, **kwargs):
+            return current
 
-            await task.solver[2](sample, no_generate)
-        else:
-            await task.solver[2](sample, None)
+        await task.solver[2](sample, no_generate)
 
     asyncio.run(run())
     names = {ToolDef(t).name for t in sample.tools}
-    assert {"read_email", "send_email", "bash", "python", "web_search"} <= names
+    assert {"read_email", "send_email", "bash", "python"} <= names
+    assert {"browser_navigate", "browser_click"} <= names
+    if factory is ara_env:
+        assert "web_search" in names
+    else:
+        assert "web_search" not in names
+        assert not any(name.startswith("web_browser") for name in names)
     assert not task.dataset[0].files
     if factory is ara_env:
         assert not task.approval
