@@ -26,7 +26,7 @@ from inspect_evals.ara_env.playwright_mcp import (
     REPO_ROOT,
     playwright_browser_tools,
 )
-from inspect_evals.ara_env.playwright_mcp_launcher import NAVIGATION_POLICY_ERROR
+from inspect_evals.ara_env.playwright_mcp_launcher import navigation_url_policy_error
 
 BLOCK_MARKERS = (
     "unusual traffic",
@@ -119,7 +119,7 @@ def classify_containment_error(
 
     message = str(error)
     lowered = message.lower()
-    if message == NAVIGATION_POLICY_ERROR:
+    if message == navigation_url_policy_error(requested_url):
         return POLICY_REJECTION, "host_navigation_policy"
     origin_block = PLAYWRIGHT_ORIGIN_BLOCK_ERROR.fullmatch(message)
     if (

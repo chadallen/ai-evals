@@ -135,16 +135,24 @@ def _request_error(request: object) -> dict[str, object] | None:
     else:
         return None
 
-    if _valid_public_navigation_url(url):
+    policy_error = navigation_url_policy_error(url)
+    if policy_error is None:
         return None
     return {
         "jsonrpc": "2.0",
         "id": request.get("id"),
         "error": {
             "code": -32602,
-            "message": NAVIGATION_POLICY_ERROR,
+            "message": policy_error,
         },
     }
+
+
+def navigation_url_policy_error(url: object) -> str | None:
+    """Return the launcher rejection for a URL, or None when it may reach Playwright."""
+    if _valid_public_navigation_url(url):
+        return None
+    return NAVIGATION_POLICY_ERROR
 
 
 def _valid_public_navigation_url(url: object) -> bool:

@@ -20,6 +20,11 @@ from inspect_ai.approval._policy import policy_approver
 from inspect_ai.tool import ToolCall, ToolCallView, ToolDef, mcp_connection
 
 from inspect_evals.ara_env import playwright_mcp, playwright_mcp_launcher
+from inspect_evals.ara_env.playwright_mcp_smoke import (
+    POLICY_REJECTION,
+    containment_evidence_passed,
+    containment_probe,
+)
 
 
 class NonClosingBytesIO(io.BytesIO):
@@ -372,8 +377,18 @@ def test_actual_mcp_relay_rejects_unsafe_urls_before_playwright(
 
         async with mcp_connection(source):
             tools = {ToolDef(tool).name: tool for tool in await source.tools()}
-            with pytest.raises(Exception, match="well-formed HTTP or HTTPS"):
-                await tools[tool_name](**arguments)
+            if tool_name == "browser_navigate":
+                result = await containment_probe(
+                    tools[tool_name], str(arguments["url"])
+                )
+                assert result["outcome"] == POLICY_REJECTION
+                assert result["enforcement_layer"] == "host_navigation_policy"
+                assert containment_evidence_passed(
+                    {"ok": True, **result}, POLICY_REJECTION
+                )
+            else:
+                with pytest.raises(Exception, match="well-formed HTTP or HTTPS"):
+                    await tools[tool_name](**arguments)
 
     asyncio.run(check())
 

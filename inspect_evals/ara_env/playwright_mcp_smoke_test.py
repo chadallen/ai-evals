@@ -177,6 +177,21 @@ def test_containment_probe_requires_exact_host_guard_error():
     assert result["policy_enforced"] is False
 
 
+@pytest.mark.parametrize("url", ["https://example.com/", "http://127.0.0.1/"])
+def test_containment_probe_rejects_exact_host_guard_text_for_allowed_url(url):
+    async def navigate(**kwargs):
+        raise RuntimeError(
+            "Navigation URL must be a well-formed HTTP or HTTPS URL "
+            "without embedded credentials."
+        )
+
+    result = asyncio.run(containment_probe(navigate, url))
+
+    assert result["outcome"] == PROVIDER_FAILURE
+    assert result["policy_enforced"] is False
+    assert result["destination_request_received"] is None
+
+
 def test_containment_probe_records_destination_reached_even_with_error_text():
     async def navigate(**kwargs):
         return "Application error: request failed"

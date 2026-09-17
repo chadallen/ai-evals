@@ -290,7 +290,8 @@ check or setup fails.
 
 Containment probes report one of five outcomes: `policy_rejection`, `destination_reached`,
 `connection_refused`, `provider_failure`, or `timeout`. Only the launcher's exact navigation-policy
-error and Playwright's structured `ERR_BLOCKED_BY_CLIENT` error establish policy rejection. The
+error for a URL rejected by the launcher's shared policy and Playwright's structured
+`ERR_BLOCKED_BY_CLIENT` error establish policy rejection. The
 structured error must name the exact requested URL in its error line and navigation log. Generic
 exceptions, closed ports, provider failures, and timeouts receive no enforcement credit. A refused
 connection leaves destination receipt unknown because it proves only that no service accepted the
