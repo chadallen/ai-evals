@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,16 @@ from browser_use_sdk.v4 import BrowserUse
 API_KEY_NAME = "BROWSER_USE_API_KEY"
 CDP_ENDPOINT_NAME = "ARA_BROWSER_CDP_ENDPOINT"
 REPO_ROOT = Path(__file__).resolve().parents[2]
+SHUTDOWN_GRACE_SECONDS = 2.0
+SHUTDOWN_KILL_SECONDS = 2.0
+
+
+class _ShutdownRequested(BaseException):
+    """Unwind provider and workspace state after a launcher signal."""
+
+    def __init__(self, signum: int) -> None:
+        self.signum = signum
+        super().__init__(signum)
 
 # Playwright documents origin filters as defense in depth, not a security
 # boundary. These patterns still prevent direct requests to common local,
@@ -259,6 +270,7 @@ def _run_server(
         stderr=subprocess.PIPE,
         env=_mcp_environment(source, cdp_endpoint, workspace),
         cwd=workspace,
+        start_new_session=True,
     )
     assert process.stdin is not None
     assert process.stdout is not None
@@ -286,24 +298,54 @@ def _run_server(
     for thread in output_threads:
         thread.start()
 
-    def terminate(_signum: int, _frame: Any) -> None:
-        process.terminate()
-
-    previous = {
-        signum: signal.signal(signum, terminate)
-        for signum in (signal.SIGINT, signal.SIGTERM)
-    }
     try:
         return_code = process.wait()
         for thread in output_threads:
             thread.join(timeout=10)
         return return_code
     finally:
-        for signum, handler in previous.items():
-            signal.signal(signum, handler)
-        if process.poll() is None:
-            process.terminate()
-            process.wait(timeout=10)
+        _shutdown_process_group(process)
+
+
+def _signal_process_group(process: subprocess.Popen[bytes], signum: int) -> bool:
+    """Signal the dedicated MCP process group, including descendants."""
+    pid = getattr(process, "pid", None)
+    if pid is not None:
+        try:
+            os.killpg(pid, signum)
+            return True
+        except ProcessLookupError:
+            return False
+
+    if process.poll() is not None:
+        return False
+    if signum == signal.SIGTERM:
+        process.terminate()
+    else:
+        process.kill()
+    return True
+
+
+def _shutdown_process_group(process: subprocess.Popen[bytes]) -> None:
+    """Stop the MCP process tree without allowing cleanup to wait forever."""
+    group_exists = _signal_process_group(process, signal.SIGTERM)
+    if process.poll() is None:
+        try:
+            process.wait(timeout=SHUTDOWN_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass
+    elif group_exists:
+        # The group leader may exit before a descendant. Give those descendants
+        # the same short graceful-shutdown window before forcing termination.
+        time.sleep(SHUTDOWN_GRACE_SECONDS)
+
+    if group_exists:
+        _signal_process_group(process, signal.SIGKILL)
+    if process.poll() is None:
+        try:
+            process.wait(timeout=SHUTDOWN_KILL_SECONDS)
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError("Unable to stop Playwright MCP process group") from error
 
 
 def _workspace_path(path: str) -> Path:
@@ -362,12 +404,26 @@ def _main_in_workspace(workspace: Path) -> int:
 
 
 def main() -> int:
-    """Run one MCP sample in a workspace removed on every normal exit path."""
-    with tempfile.TemporaryDirectory(prefix="ara-playwright-mcp-") as path:
-        sample_dir = _workspace_path(path)
-        workspace = sample_dir / "workspace"
-        workspace.mkdir()
-        return _main_in_workspace(workspace)
+    """Run one MCP sample and remove its workspace after every exit path."""
+    def request_shutdown(signum: int, _frame: Any) -> None:
+        raise _ShutdownRequested(signum)
+
+    previous = {
+        signum: signal.signal(signum, request_shutdown)
+        for signum in (signal.SIGINT, signal.SIGTERM)
+    }
+    try:
+        try:
+            with tempfile.TemporaryDirectory(prefix="ara-playwright-mcp-") as path:
+                sample_dir = _workspace_path(path)
+                workspace = sample_dir / "workspace"
+                workspace.mkdir()
+                return _main_in_workspace(workspace)
+        except _ShutdownRequested as shutdown:
+            return 128 + shutdown.signum
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
 
 
 if __name__ == "__main__":

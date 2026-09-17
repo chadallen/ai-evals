@@ -6,8 +6,10 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -630,6 +632,7 @@ def test_run_server_confines_child_to_disposable_workspace(monkeypatch, tmp_path
         == 0
     )
     assert captured["cwd"] == workspace
+    assert captured["start_new_session"] is True
     assert captured["env"]["PLAYWRIGHT_MCP_OUTPUT_DIR"] == str(
         tmp_path / "downloads"
     )
@@ -676,8 +679,125 @@ def test_handled_termination_signal_removes_workspace(monkeypatch, tmp_path):
         SimpleNamespace(buffer=io.BytesIO()),
     )
 
-    assert playwright_mcp_launcher.main() == -signal.SIGTERM
+    assert playwright_mcp_launcher.main() == 128 + signal.SIGTERM
     assert not captured["cwd"].exists()
+
+
+@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM])
+def test_early_signal_during_provider_setup_removes_workspace(
+    monkeypatch, tmp_path, signum
+):
+    handlers = {}
+    observed_workspaces = []
+
+    def install_handler(installed_signum, handler):
+        previous = handlers.get(installed_signum, signal.SIG_DFL)
+        handlers[installed_signum] = handler
+        return previous
+
+    def interrupted_browser_use(**kwargs):
+        workspaces = list(tmp_path.glob("ara-playwright-mcp-*/workspace"))
+        assert len(workspaces) == 1
+        observed_workspaces.extend(workspaces)
+        (workspaces[0] / "provider-startup-artifact").write_text("temporary")
+        handlers[signum](signum, None)
+        raise AssertionError("signal handler must unwind provider startup")
+
+    monkeypatch.setenv(playwright_mcp_launcher.API_KEY_NAME, "test-secret-key")
+    monkeypatch.setenv("ARA_PLAYWRIGHT_MCP_EXECUTABLE", "/bin/server")
+    monkeypatch.delenv(playwright_mcp_launcher.CDP_ENDPOINT_NAME, raising=False)
+    monkeypatch.setattr(signal, "signal", install_handler)
+    monkeypatch.setattr(playwright_mcp_launcher, "BrowserUse", interrupted_browser_use)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+
+    assert playwright_mcp_launcher.main() == 128 + signum
+    assert len(observed_workspaces) == 1
+    assert not observed_workspaces[0].exists()
+
+
+@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM])
+def test_launcher_kills_signal_ignoring_child_and_removes_workspace(tmp_path, signum):
+    temp_root = tmp_path / "launcher-temp"
+    temp_root.mkdir()
+    ready_path = tmp_path / "child-ready"
+    descendant_ready_path = tmp_path / "descendant-ready"
+    heartbeat_path = tmp_path / "descendant-heartbeat"
+    descendant_path = tmp_path / "ignores-signals-descendant.py"
+    descendant_path.write_text(
+        f"#!{sys.executable}\n"
+        "import os\n"
+        "import signal\n"
+        "import time\n"
+        "from pathlib import Path\n"
+        "signal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "Path(os.environ['TEST_DESCENDANT_READY_PATH']).touch()\n"
+        "heartbeat = Path(os.environ['TEST_HEARTBEAT_PATH'])\n"
+        "while True:\n"
+        "    heartbeat.write_text(str(time.monotonic_ns()))\n"
+        "    time.sleep(0.02)\n"
+    )
+    descendant_path.chmod(0o700)
+    child_path = tmp_path / "ignores-signals.py"
+    child_path.write_text(
+        f"#!{sys.executable}\n"
+        "import os\n"
+        "import signal\n"
+        "import subprocess\n"
+        "import time\n"
+        "from pathlib import Path\n"
+        "signal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "subprocess.Popen([os.environ['TEST_DESCENDANT_PATH']])\n"
+        "Path(os.environ['TEST_READY_PATH']).write_text(os.getcwd())\n"
+        "while True:\n"
+        "    time.sleep(1)\n"
+    )
+    child_path.chmod(0o700)
+    env = dict(os.environ)
+    env.update(
+        ARA_BROWSER_CDP_ENDPOINT="ws://configured",
+        ARA_PLAYWRIGHT_MCP_EXECUTABLE=str(child_path),
+        TEST_DESCENDANT_PATH=str(descendant_path),
+        TEST_DESCENDANT_READY_PATH=str(descendant_ready_path),
+        TEST_HEARTBEAT_PATH=str(heartbeat_path),
+        TEST_READY_PATH=str(ready_path),
+        TMPDIR=str(temp_root),
+    )
+    process = subprocess.Popen(
+        [sys.executable, str(Path(playwright_mcp_launcher.__file__))],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while (
+            not ready_path.exists() or not descendant_ready_path.exists()
+        ) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if not ready_path.exists() or not descendant_ready_path.exists():
+            process.send_signal(signal.SIGTERM)
+            output = process.communicate(timeout=6)
+            pytest.fail(f"child process tree did not become ready: {output!r}")
+
+        started = time.monotonic()
+        process.send_signal(signum)
+        stdout, stderr = process.communicate(timeout=6)
+
+        assert process.returncode == 128 + signum, (stdout, stderr)
+        assert time.monotonic() - started < 5
+        workspace = Path(ready_path.read_text())
+        assert not workspace.exists()
+        assert list(temp_root.glob("ara-playwright-mcp-*")) == []
+        heartbeat = heartbeat_path.read_text()
+        time.sleep(0.1)
+        assert heartbeat_path.read_text() == heartbeat
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=2)
 
 
 def test_code_container_has_no_network_credentials_or_host_mounts():
