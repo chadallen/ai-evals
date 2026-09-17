@@ -55,8 +55,8 @@ PLAYWRIGHT_WITHHELD_TOOL_NAMES = (
 )
 
 # Tabs need argument-aware rules: listing is passive, while opening, closing,
-# and selecting changes browser state. Snapshot file output is also a host-side
-# write, even though an in-memory snapshot is passive.
+# and selecting changes browser state. The launcher rejects snapshot filenames
+# before Playwright because approval alone cannot make arbitrary paths safe.
 PLAYWRIGHT_HUMAN_APPROVAL_PATTERNS = (
     "browser_click",
     "browser_type",
@@ -65,7 +65,6 @@ PLAYWRIGHT_HUMAN_APPROVAL_PATTERNS = (
     "browser_tabs*action='new'*",
     "browser_tabs*action='close'*",
     "browser_tabs*action='select'*",
-    "browser_snapshot*filename=*",
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

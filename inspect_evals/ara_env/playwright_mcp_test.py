@@ -4,6 +4,9 @@ import asyncio
 import io
 import json
 import os
+import signal
+import subprocess
+import tempfile
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -78,7 +81,7 @@ def test_noninteractive_selection_omits_mutating_actions():
     )
 
 
-def test_launcher_strips_credentials_from_playwright_environment():
+def test_launcher_strips_credentials_from_playwright_environment(tmp_path):
     source = {
         playwright_mcp_launcher.API_KEY_NAME: "secret",
         playwright_mcp_launcher.CDP_ENDPOINT_NAME: "ws://configured",
@@ -86,7 +89,11 @@ def test_launcher_strips_credentials_from_playwright_environment():
         "ARA_BROWSER_TOOL_TIMEOUT_MS": "42000",
         "PATH": "/bin",
     }
-    env = playwright_mcp_launcher._mcp_environment(source, "ws://generated")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    env = playwright_mcp_launcher._mcp_environment(
+        source, "ws://generated", workspace
+    )
     assert playwright_mcp_launcher.API_KEY_NAME not in env
     assert playwright_mcp_launcher.CDP_ENDPOINT_NAME not in env
     assert env["PLAYWRIGHT_MCP_CDP_ENDPOINT"] == "ws://generated"
@@ -95,6 +102,12 @@ def test_launcher_strips_credentials_from_playwright_environment():
     assert "PLAYWRIGHT_MCP_ACTION_TIMEOUT" not in env
     assert "PLAYWRIGHT_MCP_NAVIGATION_TIMEOUT" not in env
     assert env["PLAYWRIGHT_MCP_BLOCK_SERVICE_WORKERS"] == "true"
+    assert env["PLAYWRIGHT_MCP_OUTPUT_DIR"] == str(workspace / "downloads")
+    assert env["PLAYWRIGHT_MCP_ALLOW_UNRESTRICTED_FILE_ACCESS"] == "false"
+    assert env["PLAYWRIGHT_MCP_ISOLATED"] == "true"
+    config = json.loads(Path(env["PLAYWRIGHT_MCP_CONFIG"]).read_text())
+    assert config["browser"]["contextOptions"]["acceptDownloads"] is False
+    assert config["outputDir"] == str(workspace / "downloads")
     blocked = set(env["PLAYWRIGHT_MCP_BLOCKED_ORIGINS"].split(";"))
     assert blocked == set(playwright_mcp_launcher.PRIVATE_ORIGIN_BLOCKS)
     assert {"localhost", "127.*", "10.*", "169.254.*", "192.168.*"} <= blocked
@@ -227,6 +240,39 @@ def test_input_relay_applies_same_policy_to_new_tab_url():
     assert json.loads(parent_output.getvalue())["error"]["code"] == -32602
 
 
+@pytest.mark.parametrize("target", ["repository", "email"])
+def test_input_relay_rejects_snapshot_file_overwrites(tmp_path, target):
+    repository_file = tmp_path / "tracked.py"
+    email_file = tmp_path / "all-logs" / "email" / "sent.json"
+    email_file.parent.mkdir(parents=True)
+    protected = repository_file if target == "repository" else email_file
+    protected.write_text("original")
+    request = {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": {
+            "name": "browser_snapshot",
+            "arguments": {"filename": str(protected)},
+        },
+    }
+    server_input = NonClosingBytesIO()
+    parent_output = io.BytesIO()
+
+    playwright_mcp_launcher._relay_input(
+        io.BytesIO((json.dumps(request) + "\n").encode()),
+        server_input,
+        parent_output,
+        threading.Lock(),
+    )
+
+    assert server_input.getvalue() == b""
+    assert json.loads(parent_output.getvalue())["error"]["message"] == (
+        "Snapshot file output is disabled."
+    )
+    assert protected.read_text() == "original"
+
+
 def test_node_dependency_matches_declared_server_version():
     package = json.loads((playwright_mcp.REPO_ROOT / "package.json").read_text())
     assert package["dependencies"]["@playwright/mcp"] == (
@@ -330,6 +376,22 @@ def test_actual_mcp_relay_rejects_unsafe_urls_before_playwright(
     asyncio.run(check())
 
 
+def test_actual_mcp_relay_rejects_snapshot_overwrite(monkeypatch, tmp_path):
+    protected = tmp_path / "sent-email.json"
+    protected.write_text("original")
+    monkeypatch.setenv(playwright_mcp.CDP_ENDPOINT_NAME, "http://127.0.0.1:9")
+    source = playwright_mcp.playwright_browser_tools(tool_timeout=1)
+
+    async def check():
+        async with mcp_connection(source):
+            tools = {ToolDef(tool).name: tool for tool in await source.tools()}
+            with pytest.raises(Exception, match="Snapshot file output is disabled"):
+                await tools["browser_snapshot"](filename=str(protected))
+
+    asyncio.run(check())
+    assert protected.read_text() == "original"
+
+
 EXPECTED_TOOL_SCHEMAS = {
     "browser_navigate": ({"url"}, {"url"}),
     "browser_navigate_back": (set(), set()),
@@ -390,7 +452,6 @@ def test_playwright_runtime_approval_decisions(monkeypatch, human_decision):
             ("browser_tabs", {"action": "new"}),
             ("browser_tabs", {"action": "close", "index": 1}),
             ("browser_tabs", {"action": "select", "index": 0}),
-            ("browser_snapshot", {"filename": "snapshot.md"}),
         ]
         for name, arguments in human_calls:
             result = await approve(
@@ -398,6 +459,19 @@ def test_playwright_runtime_approval_decisions(monkeypatch, human_decision):
             )
             assert result.decision == human_decision
         assert requested == human_calls
+
+        rejected = playwright_mcp_launcher._request_error(
+            {
+                "jsonrpc": "2.0",
+                "id": "snapshot",
+                "method": "tools/call",
+                "params": {
+                    "name": "browser_snapshot",
+                    "arguments": {"filename": "snapshot.md"},
+                },
+            }
+        )
+        assert rejected is not None
 
         automatic_calls = [
             ("browser_navigate", {"url": "https://example.com"}),
@@ -425,7 +499,9 @@ def test_playwright_runtime_approval_decisions(monkeypatch, human_decision):
         pytest.param(TimeoutError("remote timeout"), 1, id="timeout"),
     ],
 )
-def test_owned_session_stops_after_server_exit(monkeypatch, server_result, expected):
+def test_owned_session_stops_after_server_exit(
+    monkeypatch, tmp_path, server_result, expected
+):
     stopped = []
     browsers = SimpleNamespace(
         create=lambda **kwargs: SimpleNamespace(id="session-id", cdp_url="ws://generated"),
@@ -439,7 +515,12 @@ def test_owned_session_stops_after_server_exit(monkeypatch, server_result, expec
         def __exit__(self, *args):
             return None
 
+    observed_workspaces = []
+
     def run_server(*args):
+        workspace = args[-1]
+        observed_workspaces.append(workspace)
+        (workspace / "download.bin").write_bytes(b"temporary")
         if isinstance(server_result, BaseException):
             raise server_result
         return server_result
@@ -449,12 +530,15 @@ def test_owned_session_stops_after_server_exit(monkeypatch, server_result, expec
     monkeypatch.delenv(playwright_mcp_launcher.CDP_ENDPOINT_NAME, raising=False)
     monkeypatch.setattr(playwright_mcp_launcher, "BrowserUse", lambda **kwargs: Client())
     monkeypatch.setattr(playwright_mcp_launcher, "_run_server", run_server)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
 
     assert playwright_mcp_launcher.main() == expected
     assert stopped == ["session-id"]
+    assert len(observed_workspaces) == 1
+    assert not observed_workspaces[0].exists()
 
 
-def test_owned_session_stops_after_cancellation(monkeypatch):
+def test_owned_session_stops_after_cancellation(monkeypatch, tmp_path):
     stopped = []
     browsers = SimpleNamespace(
         create=lambda **kwargs: SimpleNamespace(id="session-id", cdp_url="ws://generated"),
@@ -472,15 +556,126 @@ def test_owned_session_stops_after_cancellation(monkeypatch):
     monkeypatch.setenv("ARA_PLAYWRIGHT_MCP_EXECUTABLE", "/bin/server")
     monkeypatch.delenv(playwright_mcp_launcher.CDP_ENDPOINT_NAME, raising=False)
     monkeypatch.setattr(playwright_mcp_launcher, "BrowserUse", lambda **kwargs: Client())
-    monkeypatch.setattr(
-        playwright_mcp_launcher,
-        "_run_server",
-        lambda *args: (_ for _ in ()).throw(asyncio.CancelledError()),
-    )
+    observed_workspaces = []
+
+    def cancel(*args):
+        workspace = args[-1]
+        observed_workspaces.append(workspace)
+        (workspace / "partial-download.bin").write_bytes(b"temporary")
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(playwright_mcp_launcher, "_run_server", cancel)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
 
     with pytest.raises(asyncio.CancelledError):
         playwright_mcp_launcher.main()
     assert stopped == ["session-id"]
+    assert not observed_workspaces[0].exists()
+
+
+def test_configured_endpoint_workspace_removed_after_child_startup_failure(
+    monkeypatch, tmp_path
+):
+    observed_workspaces = []
+
+    def fail(*args):
+        workspace = args[-1]
+        observed_workspaces.append(workspace)
+        (workspace / "startup-artifact").write_text("temporary")
+        raise FileNotFoundError("missing MCP executable")
+
+    monkeypatch.setenv("ARA_PLAYWRIGHT_MCP_EXECUTABLE", "/missing/server")
+    monkeypatch.setenv(playwright_mcp_launcher.CDP_ENDPOINT_NAME, "ws://configured")
+    monkeypatch.setattr(playwright_mcp_launcher, "_run_server", fail)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+
+    with pytest.raises(FileNotFoundError, match="missing MCP executable"):
+        playwright_mcp_launcher.main()
+    assert not observed_workspaces[0].exists()
+
+
+def test_run_server_confines_child_to_disposable_workspace(monkeypatch, tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    captured = {}
+
+    class Process:
+        stdin = NonClosingBytesIO()
+        stdout = io.BytesIO()
+        stderr = io.BytesIO()
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+    def popen(args, **kwargs):
+        captured.update(args=args, **kwargs)
+        return Process()
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    monkeypatch.setattr(
+        playwright_mcp_launcher.sys,
+        "stdin",
+        SimpleNamespace(buffer=io.BytesIO()),
+    )
+
+    assert (
+        playwright_mcp_launcher._run_server(
+            "/bin/server", "ws://configured", {}, workspace
+        )
+        == 0
+    )
+    assert captured["cwd"] == workspace
+    assert captured["env"]["PLAYWRIGHT_MCP_OUTPUT_DIR"] == str(
+        workspace / "downloads"
+    )
+
+
+def test_handled_termination_signal_removes_workspace(monkeypatch, tmp_path):
+    captured = {}
+    handlers = {}
+
+    class Process:
+        stdin = NonClosingBytesIO()
+        stdout = io.BytesIO()
+        stderr = io.BytesIO()
+        terminated = False
+
+        def wait(self, timeout=None):
+            if not self.terminated:
+                handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return -signal.SIGTERM
+
+        def poll(self):
+            return -signal.SIGTERM if self.terminated else None
+
+        def terminate(self):
+            self.terminated = True
+
+    def popen(args, **kwargs):
+        captured.update(args=args, **kwargs)
+        return Process()
+
+    def install_handler(signum, handler):
+        previous = handlers.get(signum, signal.SIG_DFL)
+        handlers[signum] = handler
+        return previous
+
+    monkeypatch.setenv("ARA_PLAYWRIGHT_MCP_EXECUTABLE", "/bin/server")
+    monkeypatch.setenv(playwright_mcp_launcher.CDP_ENDPOINT_NAME, "ws://configured")
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    monkeypatch.setattr(signal, "signal", install_handler)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(
+        playwright_mcp_launcher.sys,
+        "stdin",
+        SimpleNamespace(buffer=io.BytesIO()),
+    )
+
+    assert playwright_mcp_launcher.main() == -signal.SIGTERM
+    assert not captured["cwd"].exists()
 
 
 def test_code_container_has_no_network_credentials_or_host_mounts():

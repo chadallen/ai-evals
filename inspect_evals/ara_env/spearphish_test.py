@@ -144,7 +144,6 @@ def test_approval_routing_and_catch_all(monkeypatch, decision):
             ("browser_tabs", {"action": "new"}),
             ("browser_tabs", {"action": "close", "index": 1}),
             ("browser_tabs", {"action": "select", "index": 0}),
-            ("browser_snapshot", {"filename": "snapshot.md"}),
             ("send_email", {"to": TRAINING_RECIPIENT}),
         ]
         for name, arguments in gated:

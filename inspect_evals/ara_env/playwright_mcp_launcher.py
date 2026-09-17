@@ -11,8 +11,10 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlsplit
 
@@ -20,6 +22,7 @@ from browser_use_sdk.v4 import BrowserUse
 
 API_KEY_NAME = "BROWSER_USE_API_KEY"
 CDP_ENDPOINT_NAME = "ARA_BROWSER_CDP_ENDPOINT"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Playwright documents origin filters as defense in depth, not a security
 # boundary. These patterns still prevent direct requests to common local,
@@ -83,8 +86,8 @@ def _relay_output(
             destination.flush()
 
 
-def _navigation_error(request: object) -> dict[str, object] | None:
-    """Return an MCP error when a tool call contains an unsafe URL."""
+def _request_error(request: object) -> dict[str, object] | None:
+    """Return an MCP error when a tool call crosses a host boundary."""
     if not isinstance(request, dict) or request.get("method") != "tools/call":
         return None
     params = request.get("params")
@@ -94,6 +97,16 @@ def _navigation_error(request: object) -> dict[str, object] | None:
     arguments = params.get("arguments")
     if not isinstance(arguments, dict):
         return None
+
+    if name == "browser_snapshot" and "filename" in arguments:
+        return {
+            "jsonrpc": "2.0",
+            "id": request.get("id"),
+            "error": {
+                "code": -32602,
+                "message": "Snapshot file output is disabled.",
+            },
+        }
 
     url: object | None = None
     if name == "browser_navigate":
@@ -180,7 +193,7 @@ def _relay_input(
                 request = json.loads(line)
             except (json.JSONDecodeError, UnicodeDecodeError):
                 request = None
-            error = _navigation_error(request)
+            error = _request_error(request)
             if error is not None:
                 response = (json.dumps(error, separators=(",", ":")) + "\n").encode()
                 with output_lock:
@@ -196,7 +209,20 @@ def _relay_input(
             destination.close()
 
 
-def _mcp_environment(source: Mapping[str, str], cdp_endpoint: str) -> dict[str, str]:
+def _mcp_environment(
+    source: Mapping[str, str], cdp_endpoint: str, workspace: Path
+) -> dict[str, str]:
+    output_dir = workspace / "downloads"
+    config_path = workspace / "playwright-mcp-config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "browser": {"contextOptions": {"acceptDownloads": False}},
+                "outputDir": str(output_dir),
+                "allowUnrestrictedFileAccess": False,
+            }
+        )
+    )
     env = dict(source)
     env.pop(API_KEY_NAME, None)
     env.pop(CDP_ENDPOINT_NAME, None)
@@ -211,17 +237,27 @@ def _mcp_environment(source: Mapping[str, str], cdp_endpoint: str) -> dict[str, 
         PLAYWRIGHT_MCP_CODEGEN="none",
         PLAYWRIGHT_MCP_BLOCKED_ORIGINS=";".join(PRIVATE_ORIGIN_BLOCKS),
         PLAYWRIGHT_MCP_BLOCK_SERVICE_WORKERS="true",
+        PLAYWRIGHT_MCP_CONFIG=str(config_path),
+        PLAYWRIGHT_MCP_OUTPUT_DIR=str(output_dir),
+        PLAYWRIGHT_MCP_ALLOW_UNRESTRICTED_FILE_ACCESS="false",
+        PLAYWRIGHT_MCP_ISOLATED="true",
     )
     return env
 
 
-def _run_server(executable: str, cdp_endpoint: str, source: Mapping[str, str]) -> int:
+def _run_server(
+    executable: str,
+    cdp_endpoint: str,
+    source: Mapping[str, str],
+    workspace: Path,
+) -> int:
     process = subprocess.Popen(
         [executable],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env=_mcp_environment(source, cdp_endpoint),
+        env=_mcp_environment(source, cdp_endpoint, workspace),
+        cwd=workspace,
     )
     assert process.stdin is not None
     assert process.stdout is not None
@@ -269,11 +305,19 @@ def _run_server(executable: str, cdp_endpoint: str, source: Mapping[str, str]) -
             process.wait(timeout=10)
 
 
-def main() -> int:
+def _workspace_path(path: str) -> Path:
+    """Verify the disposable MCP workspace is outside repository evidence."""
+    workspace = Path(path).resolve()
+    if workspace == REPO_ROOT or REPO_ROOT in workspace.parents:
+        raise RuntimeError("Refusing to run Playwright MCP inside the repository")
+    return workspace
+
+
+def _main_in_workspace(workspace: Path) -> int:
     executable = os.environ["ARA_PLAYWRIGHT_MCP_EXECUTABLE"]
     configured_endpoint = os.environ.get(CDP_ENDPOINT_NAME)
     if configured_endpoint:
-        return _run_server(executable, configured_endpoint, os.environ)
+        return _run_server(executable, configured_endpoint, os.environ, workspace)
 
     api_key = os.environ.get(API_KEY_NAME)
     if not api_key:
@@ -298,7 +342,7 @@ def main() -> int:
             )
         if not session.cdp_url:
             raise RuntimeError("Browser provider returned no CDP endpoint")
-        return _run_server(executable, session.cdp_url, os.environ)
+        return _run_server(executable, session.cdp_url, os.environ, workspace)
     except Exception as error:
         details = _redact(f"{captured.getvalue()}\n{error}", [api_key])
         print(f"Unable to start remote browser: {details[-500:]}", file=sys.stderr)
@@ -314,6 +358,12 @@ def main() -> int:
         except Exception as error:
             details = _redact(str(error), [api_key])
             print(f"Unable to stop remote browser cleanly: {details[-500:]}", file=sys.stderr)
+
+
+def main() -> int:
+    """Run one MCP sample in a workspace removed on every normal exit path."""
+    with tempfile.TemporaryDirectory(prefix="ara-playwright-mcp-") as path:
+        return _main_in_workspace(_workspace_path(path))
 
 
 if __name__ == "__main__":

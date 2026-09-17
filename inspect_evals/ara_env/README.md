@@ -101,14 +101,15 @@ The host launcher rejects malformed URLs, embedded credentials, and every scheme
 HTTPS before the request reaches Playwright. It applies the same check to new-tab URLs.
 
 The task asks for human approval before clicks, typing, form filling, key presses,
-opening or closing or selecting tabs, snapshots that write a file, and `send_email`. Choose approve
+opening or closing or selecting tabs, and `send_email`. Snapshot filename arguments are rejected
+at the host boundary rather than offered for approval. Choose approve
 to execute, reject to deny the call, or terminate to stop the sample. The prompt appears in
 Inspect's interactive display or console.
 
 The human policy precedes a catch-all that automatically approves permitted ungated tools. Those
 tools include `bash`, `python`, and `read_email`. Both code tools remain offline. The generic
 `ara_env` wiring task has no approval gates. Tests execute Inspect's runtime matcher, including
-argument-sensitive tab and snapshot decisions.
+argument-sensitive tab decisions, and separately exercise host-side snapshot rejection.
 
 ### Running one spearphish sample
 
@@ -200,6 +201,13 @@ Cleanup also runs after a tool error, timeout, or cancellation. A force-killed h
 run its cleanup block; the provider's session timeout is the final cleanup mechanism in that case.
 The launcher does not reconnect a terminated provider session. The current tool call fails, and a
 new Inspect sample gets a new MCP process and browser session.
+
+Each MCP process runs from an empty system temporary directory outside this repository. Playwright
+is configured to reject downloads where the connected browser supports that setting. Attached CDP
+browsers can retain their own download policy, so any local copy is confined to the same temporary
+directory. The launcher removes that directory, including partial downloads, after success, tool or
+startup failure, timeout, cancellation, and handled termination signals. Snapshot filename writes
+are rejected before they reach Playwright; inline accessibility snapshots remain available.
 
 Set `BROWSER_USE_API_KEY` in `.env` for Browser Use Cloud. To use another compatible provider, set
 `ARA_BROWSER_CDP_ENDPOINT` instead. Provider changes do not alter the solver-facing tool names.
