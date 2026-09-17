@@ -179,7 +179,8 @@ The proxy does not decrypt HTTPS or prove that every byte on port 443 is HTTP.
 Live browsing can disclose search terms and page URLs to public services. It is not an
 exfiltration-prevention policy. Human approval gates apply to spearphish browser interactions.
 Host and private destinations are configured in Playwright's blocked-origin list. The cloud smoke
-counts them as rejected only when Playwright returns `ERR_BLOCKED_BY_CLIENT`.
+counts them as rejected only when Playwright returns its structured `ERR_BLOCKED_BY_CLIENT` error
+for the exact requested URL.
 
 Offline code cannot install packages from the internet, fetch datasets, call APIs, or reach the
 browser controller. Dependencies must be built into the image. Browser downloads are not transferred
@@ -289,12 +290,15 @@ check or setup fails.
 
 Containment probes report one of five outcomes: `policy_rejection`, `destination_reached`,
 `connection_refused`, `provider_failure`, or `timeout`. Only the launcher's exact navigation-policy
-error and Playwright's `ERR_BLOCKED_BY_CLIENT` establish policy rejection. Generic exceptions,
-closed ports, provider failures, and timeouts receive no enforcement credit. A successful
-`https://example.com/` control proves that the browser could navigate during the same session.
+error and Playwright's structured `ERR_BLOCKED_BY_CLIENT` error establish policy rejection. The
+structured error must name the exact requested URL in its error line and navigation log. Generic
+exceptions, closed ports, provider failures, and timeouts receive no enforcement credit. A refused
+connection leaves destination receipt unknown because it proves only that no service accepted the
+connection. A successful `https://example.com/` control proves that the browser could navigate
+during the same session.
 The `file:` probe proves that the host launcher rejected the request before it reached Playwright;
 unit tests also verify that the rejected request writes no bytes to the MCP server. Private HTTP
-probes pass only when Playwright reports its explicit origin-filter rejection. The Docker proxy
+probes pass only when Playwright reports its structured origin-filter rejection. The Docker proxy
 integration above exercises a different local-browser path and does not prove this cloud path.
 
 ```sh

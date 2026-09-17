@@ -50,6 +50,15 @@ CONNECTION_REFUSED = "connection_refused"
 PROVIDER_FAILURE = "provider_failure"
 TIMEOUT = "timeout"
 
+PLAYWRIGHT_ORIGIN_BLOCK_ERROR = re.compile(
+    r"\A### Error\r?\n"
+    r"Error: browserBackend\.callTool: net::ERR_BLOCKED_BY_CLIENT at "
+    r"(?P<error_url>[^\r\n]+)\r?\n"
+    r"Call log:\r?\n"
+    r'  - navigating to "(?P<log_url>[^"\r\n]+)", '
+    r'waiting until "domcontentloaded"\r?\n?\Z'
+)
+
 
 def access_result(name: str, requested_url: str, response: str) -> dict[str, object]:
     """Summarize an inline snapshot without recording its full page contents."""
@@ -101,16 +110,23 @@ async def run_phase(
         }
 
 
-def classify_containment_error(error: BaseException) -> tuple[str, str | None]:
+def classify_containment_error(
+    error: BaseException, requested_url: str
+) -> tuple[str, str | None]:
     """Classify failures without treating generic tool errors as enforcement."""
     if isinstance(error, TimeoutError):
         return TIMEOUT, None
 
     message = str(error)
     lowered = message.lower()
-    if NAVIGATION_POLICY_ERROR in message:
+    if message == NAVIGATION_POLICY_ERROR:
         return POLICY_REJECTION, "host_navigation_policy"
-    if "err_blocked_by_client" in lowered:
+    origin_block = PLAYWRIGHT_ORIGIN_BLOCK_ERROR.fullmatch(message)
+    if (
+        origin_block is not None
+        and origin_block.group("error_url") == requested_url
+        and origin_block.group("log_url") == requested_url
+    ):
         return POLICY_REJECTION, "playwright_origin_filter"
     if isinstance(error, ConnectionRefusedError) or (
         isinstance(error, OSError) and error.errno == errno.ECONNREFUSED
@@ -131,14 +147,12 @@ async def containment_probe(
     try:
         response = str(await asyncio.wait_for(navigate(url=url), timeout=timeout))
     except Exception as error:
-        outcome, layer = classify_containment_error(error)
+        outcome, layer = classify_containment_error(error, url)
         result: dict[str, object] = {
             "url": url,
             "outcome": outcome,
             "policy_enforced": outcome == POLICY_REJECTION,
-            "destination_request_received": (
-                False if outcome in {POLICY_REJECTION, CONNECTION_REFUSED} else None
-            ),
+            "destination_request_received": False if outcome == POLICY_REJECTION else None,
             "result": str(error)[:200],
         }
         if layer is not None:
@@ -148,6 +162,8 @@ async def containment_probe(
                 if layer == "host_navigation_policy"
                 else "aborted_before_destination"
             )
+        elif outcome == CONNECTION_REFUSED:
+            result["request_disposition"] = "connection_failed; receipt_unobserved"
         return result
     return {
         "url": url,

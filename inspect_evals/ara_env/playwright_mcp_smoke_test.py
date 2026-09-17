@@ -3,6 +3,8 @@
 import asyncio
 import json
 
+import pytest
+
 from inspect_evals.ara_env.playwright_mcp_smoke import (
     CONNECTION_REFUSED,
     DESTINATION_REACHED,
@@ -73,15 +75,106 @@ def test_containment_probe_records_explicit_host_policy_rejection():
 
 
 def test_containment_probe_records_playwright_origin_rejection():
-    async def navigate(**kwargs):
-        raise RuntimeError("page.goto: net::ERR_BLOCKED_BY_CLIENT")
+    url = "http://127.0.0.1/"
 
-    result = asyncio.run(containment_probe(navigate, "http://127.0.0.1"))
+    async def navigate(**kwargs):
+        raise RuntimeError(
+            "### Error\n"
+            f"Error: browserBackend.callTool: net::ERR_BLOCKED_BY_CLIENT at {url}\n"
+            "Call log:\n"
+            f'  - navigating to "{url}", waiting until "domcontentloaded"\n'
+        )
+
+    result = asyncio.run(containment_probe(navigate, url))
 
     assert result["outcome"] == POLICY_REJECTION
     assert result["policy_enforced"] is True
     assert result["enforcement_layer"] == "playwright_origin_filter"
     assert result["destination_request_received"] is False
+
+
+@pytest.mark.parametrize(
+    ("requested_url", "error_url", "log_url"),
+    [
+        ("http://127.0.0.1/", "http://169.254.169.254/", "http://169.254.169.254/"),
+        ("http://127.0.0.1/", "http://127.0.0.1", "http://127.0.0.1"),
+        (
+            "http://127.0.0.1/?probe=one",
+            "http://127.0.0.1/?probe=two",
+            "http://127.0.0.1/?probe=two",
+        ),
+        (
+            "http://127.0.0.1/?first=1&second=2",
+            "http://127.0.0.1/?second=2&first=1",
+            "http://127.0.0.1/?second=2&first=1",
+        ),
+        (
+            "http://127.0.0.1/?value=%2F",
+            "http://127.0.0.1/?value=/",
+            "http://127.0.0.1/?value=/",
+        ),
+        (
+            "http://127.0.0.1/",
+            "http://127.0.0.1/",
+            "http://169.254.169.254/",
+        ),
+    ],
+)
+def test_containment_probe_rejects_origin_block_for_a_different_exact_url(
+    requested_url, error_url, log_url
+):
+    async def navigate(**kwargs):
+        raise RuntimeError(
+            "### Error\n"
+            "Error: browserBackend.callTool: net::ERR_BLOCKED_BY_CLIENT "
+            f"at {error_url}\n"
+            "Call log:\n"
+            f'  - navigating to "{log_url}", waiting until "domcontentloaded"\n'
+        )
+
+    result = asyncio.run(containment_probe(navigate, requested_url))
+
+    assert result["outcome"] == PROVIDER_FAILURE
+    assert result["policy_enforced"] is False
+    assert result["destination_request_received"] is None
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Provider reported ERR_BLOCKED_BY_CLIENT while processing the request.",
+        (
+            "Provider failure: ### Error\n"
+            "Error: browserBackend.callTool: net::ERR_BLOCKED_BY_CLIENT "
+            "at http://127.0.0.1/\n"
+            "Call log:\n"
+            '  - navigating to "http://127.0.0.1/", waiting until '
+            '"domcontentloaded"\n'
+        ),
+        "page.goto: net::ERR_BLOCKED_BY_CLIENT at http://127.0.0.1/",
+    ],
+)
+def test_containment_probe_rejects_provider_prose_that_mentions_block_code(message):
+    async def navigate(**kwargs):
+        raise RuntimeError(message)
+
+    result = asyncio.run(containment_probe(navigate, "http://127.0.0.1/"))
+
+    assert result["outcome"] == PROVIDER_FAILURE
+    assert result["policy_enforced"] is False
+
+
+def test_containment_probe_requires_exact_host_guard_error():
+    async def navigate(**kwargs):
+        raise RuntimeError(
+            "Provider repeated: Navigation URL must be a well-formed HTTP or HTTPS "
+            "URL without embedded credentials."
+        )
+
+    result = asyncio.run(containment_probe(navigate, "file:///etc/passwd"))
+
+    assert result["outcome"] == PROVIDER_FAILURE
+    assert result["policy_enforced"] is False
 
 
 def test_containment_probe_records_destination_reached_even_with_error_text():
@@ -103,7 +196,8 @@ def test_containment_probe_records_connection_refused_without_policy_credit():
 
     assert result["outcome"] == CONNECTION_REFUSED
     assert result["policy_enforced"] is False
-    assert result["destination_request_received"] is False
+    assert result["destination_request_received"] is None
+    assert result["request_disposition"] == "connection_failed; receipt_unobserved"
 
 
 def test_containment_probe_records_provider_failure_without_policy_credit():
@@ -141,7 +235,7 @@ def test_report_does_not_accept_non_policy_failure_as_enforcement():
         "ok": True,
         "outcome": CONNECTION_REFUSED,
         "policy_enforced": False,
-        "destination_request_received": False,
+        "destination_request_received": None,
     }
 
     assert containment_evidence_passed(provider_failure, POLICY_REJECTION) is False
