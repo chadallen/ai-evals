@@ -4,10 +4,14 @@ import asyncio
 import io
 import json
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from inspect_ai.tool import ToolDef, mcp_connection
+import pytest
+from inspect_ai.approval import Approval
+from inspect_ai.approval._policy import policy_approver
+from inspect_ai.tool import ToolCall, ToolCallView, ToolDef, mcp_connection
 
 from inspect_evals.ara_env import playwright_mcp, playwright_mcp_launcher
 
@@ -84,6 +88,10 @@ def test_launcher_strips_credentials_from_playwright_environment():
     assert env["PLAYWRIGHT_MCP_TIMEOUT_NAVIGATION"] == "42000"
     assert "PLAYWRIGHT_MCP_ACTION_TIMEOUT" not in env
     assert "PLAYWRIGHT_MCP_NAVIGATION_TIMEOUT" not in env
+    assert env["PLAYWRIGHT_MCP_BLOCK_SERVICE_WORKERS"] == "true"
+    blocked = set(env["PLAYWRIGHT_MCP_BLOCKED_ORIGINS"].split(";"))
+    assert blocked == set(playwright_mcp_launcher.PRIVATE_ORIGIN_BLOCKS)
+    assert {"localhost", "127.*", "10.*", "169.254.*", "192.168.*"} <= blocked
 
 
 def test_launcher_redacts_credentials_and_cdp_urls():
@@ -165,6 +173,7 @@ def test_actual_mcp_server_exposes_only_reviewed_tools(monkeypatch):
             definitions = [ToolDef(tool) for tool in await source.tools()]
             names = {definition.name for definition in definitions}
         assert names == set(playwright_mcp.PLAYWRIGHT_BROWSER_TOOL_NAMES)
+        assert names.isdisjoint(playwright_mcp.PLAYWRIGHT_WITHHELD_TOOL_NAMES)
         assert playwright_mcp.API_KEY_NAME not in "".join(
             repr((definition.name, definition.description, definition.parameters.model_dump()))
             for definition in definitions
@@ -194,3 +203,172 @@ def test_failing_mcp_call_does_not_expose_configured_endpoint(monkeypatch, capfd
     output = "".join(capfd.readouterr())
     assert endpoint not in output
     assert "private-token" not in output
+
+
+EXPECTED_TOOL_SCHEMAS = {
+    "browser_navigate": ({"url"}, {"url"}),
+    "browser_navigate_back": (set(), set()),
+    "browser_snapshot": ({"boxes", "depth", "filename", "target"}, set()),
+    "browser_find": ({"regex", "text"}, set()),
+    "browser_click": ({"button", "doubleClick", "element", "modifiers", "target"}, {"target"}),
+    "browser_type": ({"element", "slowly", "submit", "target", "text"}, {"target", "text"}),
+    "browser_fill_form": ({"fields"}, {"fields"}),
+    "browser_press_key": ({"key"}, {"key"}),
+    "browser_wait_for": ({"text", "textGone", "time"}, set()),
+    "browser_tabs": ({"action", "index", "url"}, {"action"}),
+}
+
+
+def test_actual_mcp_tool_schemas_match_pinned_server(monkeypatch):
+    monkeypatch.setenv(playwright_mcp.CDP_ENDPOINT_NAME, "http://127.0.0.1:9")
+    source = playwright_mcp.playwright_browser_tools(tool_timeout=1)
+
+    async def check():
+        async with mcp_connection(source):
+            definitions = {ToolDef(tool).name: ToolDef(tool) for tool in await source.tools()}
+        observed = {
+            name: (set(definition.parameters.properties), set(definition.parameters.required))
+            for name, definition in definitions.items()
+        }
+        assert observed == EXPECTED_TOOL_SCHEMAS
+        tabs = definitions["browser_tabs"].parameters.properties["action"]
+        assert set(tabs.enum) == {"list", "new", "close", "select"}
+
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize("human_decision", ["approve", "reject", "terminate"])
+def test_playwright_runtime_approval_decisions(monkeypatch, human_decision):
+    policies = playwright_mcp.playwright_approval_policies()
+    human = policies[0].approver
+    requested = []
+
+    from inspect_ai.approval import _policy
+
+    original = _policy.call_approver
+
+    async def respond(approver, message, call, view, history):
+        if approver is human:
+            requested.append((call.function, call.arguments))
+            return Approval(decision=human_decision)
+        return await original(approver, message, call, view, history)
+
+    monkeypatch.setattr(_policy, "call_approver", respond)
+
+    async def check():
+        approve = policy_approver(policies)
+        human_calls = [
+            ("browser_click", {"target": "button"}),
+            ("browser_type", {"target": "input", "text": "query"}),
+            ("browser_fill_form", {"fields": []}),
+            ("browser_press_key", {"key": "Enter"}),
+            ("browser_tabs", {"action": "new"}),
+            ("browser_tabs", {"action": "close", "index": 1}),
+            ("browser_tabs", {"action": "select", "index": 0}),
+            ("browser_snapshot", {"filename": "snapshot.md"}),
+        ]
+        for name, arguments in human_calls:
+            result = await approve(
+                "test", ToolCall("id", name, arguments), ToolCallView(), []
+            )
+            assert result.decision == human_decision
+        assert requested == human_calls
+
+        automatic_calls = [
+            ("browser_navigate", {"url": "https://example.com"}),
+            ("browser_navigate_back", {}),
+            ("browser_snapshot", {}),
+            ("browser_find", {"text": "Example"}),
+            ("browser_wait_for", {"time": 1}),
+            ("browser_tabs", {"action": "list"}),
+        ]
+        for name, arguments in automatic_calls:
+            result = await approve(
+                "test", ToolCall("id", name, arguments), ToolCallView(), []
+            )
+            assert result.decision == "approve"
+        assert requested == human_calls
+
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize(
+    "server_result,expected",
+    [
+        pytest.param(0, 0, id="success"),
+        pytest.param(RuntimeError("tool failure"), 1, id="failure"),
+        pytest.param(TimeoutError("remote timeout"), 1, id="timeout"),
+    ],
+)
+def test_owned_session_stops_after_server_exit(monkeypatch, server_result, expected):
+    stopped = []
+    browsers = SimpleNamespace(
+        create=lambda **kwargs: SimpleNamespace(id="session-id", cdp_url="ws://generated"),
+        stop=lambda session_id: stopped.append(session_id),
+    )
+
+    class Client:
+        def __enter__(self):
+            return SimpleNamespace(browsers=browsers)
+
+        def __exit__(self, *args):
+            return None
+
+    def run_server(*args):
+        if isinstance(server_result, BaseException):
+            raise server_result
+        return server_result
+
+    monkeypatch.setenv(playwright_mcp_launcher.API_KEY_NAME, "test-secret-key")
+    monkeypatch.setenv("ARA_PLAYWRIGHT_MCP_EXECUTABLE", "/bin/server")
+    monkeypatch.delenv(playwright_mcp_launcher.CDP_ENDPOINT_NAME, raising=False)
+    monkeypatch.setattr(playwright_mcp_launcher, "BrowserUse", lambda **kwargs: Client())
+    monkeypatch.setattr(playwright_mcp_launcher, "_run_server", run_server)
+
+    assert playwright_mcp_launcher.main() == expected
+    assert stopped == ["session-id"]
+
+
+def test_owned_session_stops_after_cancellation(monkeypatch):
+    stopped = []
+    browsers = SimpleNamespace(
+        create=lambda **kwargs: SimpleNamespace(id="session-id", cdp_url="ws://generated"),
+        stop=lambda session_id: stopped.append(session_id),
+    )
+
+    class Client:
+        def __enter__(self):
+            return SimpleNamespace(browsers=browsers)
+
+        def __exit__(self, *args):
+            return None
+
+    monkeypatch.setenv(playwright_mcp_launcher.API_KEY_NAME, "test-secret-key")
+    monkeypatch.setenv("ARA_PLAYWRIGHT_MCP_EXECUTABLE", "/bin/server")
+    monkeypatch.delenv(playwright_mcp_launcher.CDP_ENDPOINT_NAME, raising=False)
+    monkeypatch.setattr(playwright_mcp_launcher, "BrowserUse", lambda **kwargs: Client())
+    monkeypatch.setattr(
+        playwright_mcp_launcher,
+        "_run_server",
+        lambda *args: (_ for _ in ()).throw(asyncio.CancelledError()),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        playwright_mcp_launcher.main()
+    assert stopped == ["session-id"]
+
+
+def test_code_container_has_no_network_credentials_or_host_mounts():
+    import yaml
+
+    compose = yaml.safe_load(
+        (Path(playwright_mcp.__file__).with_name("compose.yaml")).read_text()
+    )
+    code = compose["services"]["default"]
+    assert code["network_mode"] == "none"
+    assert "networks" not in code
+    assert "ports" not in code
+    assert "volumes" not in code
+    serialized = json.dumps(code)
+    assert playwright_mcp.API_KEY_NAME not in serialized
+    assert playwright_mcp.CDP_ENDPOINT_NAME not in serialized

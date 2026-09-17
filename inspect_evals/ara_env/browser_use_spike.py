@@ -32,6 +32,11 @@ BLOCK_MARKERS = (
     "security check",
     "challenge-platform",
 )
+LINKEDIN_DISMISS_SELECTORS = (
+    "button[aria-label='Dismiss']",
+    "button.modal__dismiss",
+    "button[data-tracking-control-name*='modal_dismiss']",
+)
 
 
 class Browsers(Protocol):
@@ -92,9 +97,37 @@ def page_result(name: str, requested_url: str, page: Any) -> dict[str, Any]:
     }
 
 
+def dismiss_linkedin_marketing(page: Any) -> dict[str, Any]:
+    """Dismiss LinkedIn's public-page marketing modal when it is present."""
+    attempts = []
+    dismissed = False
+    for selector in LINKEDIN_DISMISS_SELECTORS:
+        locator = page.locator(selector)
+        if locator.count() == 0:
+            continue
+        attempts.append(selector)
+        try:
+            locator.first.click(timeout=3_000)
+            dismissed = True
+            break
+        except Exception:
+            continue
+    if not dismissed:
+        attempts.append("Escape")
+        try:
+            page.keyboard.press("Escape")
+        except Exception:
+            pass
+    page.wait_for_timeout(500)
+    return {"attempted": attempts, "dismissed": dismissed}
+
+
 def navigate_result(name: str, url: str, page: Any) -> dict[str, Any]:
     page.goto(url, wait_until="domcontentloaded", timeout=45_000)
     page.wait_for_timeout(3_000)
+    marketing_prompt = None
+    if name == "linkedin_public":
+        marketing_prompt = dismiss_linkedin_marketing(page)
     result = page_result(name, url, page)
     initial_markers = result["block_markers"]
     captcha_wait_seconds = 0
@@ -104,6 +137,8 @@ def navigate_result(name: str, url: str, page: Any) -> dict[str, Any]:
         result = page_result(name, url, page)
     result["initial_block_markers"] = initial_markers
     result["captcha_wait_seconds"] = captcha_wait_seconds
+    if marketing_prompt is not None:
+        result["marketing_prompt"] = marketing_prompt
     return result
 
 

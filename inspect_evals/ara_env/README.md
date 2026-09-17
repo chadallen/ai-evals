@@ -102,6 +102,13 @@ The human policy precedes a catch-all that automatically approves other tools, i
 These gates select tool names, not subprocesses: Python can launch shell commands without a
 bash-tool prompt. Both code tools remain offline regardless of approval.
 
+The reviewed Playwright MCP policy is available through
+`playwright_approval_policies()`. It automatically approves navigation, back navigation,
+in-memory snapshots, page search, waits, and tab listing. It asks a human before clicks,
+typing, form filling, key presses, opening or closing or selecting tabs, and snapshots that
+write a file. The specific human rules precede the catch-all automatic rule. Tests execute
+Inspect's runtime matcher, including argument-sensitive tab and snapshot decisions.
+
 To reuse the tools, put `setup_email(inbox_file, output_dir)` before `use_tools(read_email(), send_email())`
 in a task's solver chain. Add the other tools the task requires.
 
@@ -163,15 +170,35 @@ The host runs pinned `@playwright/mcp` through Inspect's stdio MCP client. The s
 separate tools for navigation, snapshots, page search, clicks, typing, forms, key presses, waits,
 and tabs. Inspect filters the server's full tool list. It does not expose JavaScript evaluation,
 unsafe code, uploads, drag-and-drop, network mutation, storage mutation, or screenshots.
+The tests lock the names and parameter schemas returned by the pinned server. Updating the package
+therefore requires an explicit review of any schema change.
 
 The launcher creates one Browser Use Cloud raw-browser session for each Inspect sample. It passes
 the returned Chrome DevTools Protocol endpoint to Playwright MCP through the child environment.
 The Browser Use API key is removed from the Playwright process environment. The launcher stops the
 cloud session when Inspect closes the MCP connection. Tool and navigation timeouts are bounded.
+Cleanup also runs after a tool error, timeout, or cancellation. A force-killed host process cannot
+run its cleanup block; the provider's session timeout is the final cleanup mechanism in that case.
+The launcher does not reconnect a terminated provider session. The current tool call fails, and a
+new Inspect sample gets a new MCP process and browser session.
 
 Set `BROWSER_USE_API_KEY` in `.env` for Browser Use Cloud. To use another compatible provider, set
 `ARA_BROWSER_CDP_ENDPOINT` instead. Provider changes do not alter the solver-facing tool names.
 Install the pinned server with `npm ci --ignore-scripts` after cloning the repository.
+
+The Playwright process blocks direct requests to loopback, private IPv4, link-local, Docker-host,
+and `.local` targets. Playwright states that its origin filters do not cover redirects and are not a
+security boundary. The remote provider cannot address services on the task's local Docker networks,
+and the offline code container has no route to the host MCP process. These topology controls are the
+security boundary. File URLs remain disabled by Playwright's default workspace restrictions.
+
+Browser Use bills browser time and may bill proxy traffic. The feasibility report records
+`browser_cost_usd`, `proxy_cost_usd`, `proxy_used_mb`, and `total_cost_usd` from the stopped session.
+Prices and access results can change between runs. A failed Google, Bing, or LinkedIn check can mean
+bot mitigation, a sign-in wall, site markup changes, provider failure, or a network error. It does
+not establish a solver-model failure. The report records block markers and a short preview so the
+operator can classify the failure. LinkedIn's dismiss controls and Escape are tried before the page
+is classified.
 
 The pinned launcher retains Playwright's disabled Chromium internal sandbox. Enabling it with
 `chromium_sandbox=True` failed with `No usable sandbox!` under the retained Docker restrictions.
@@ -222,9 +249,13 @@ choosing a backend.
 ### Playwright MCP integration check
 
 This check creates one billed Browser Use browser without calling a solver model. It verifies the
-reviewed MCP tool list, an accessibility snapshot, cookie support, history state across calls, and
-session cleanup.
+reviewed MCP tool list, an accessibility snapshot, cookie support, history state across calls,
+blocked local and file targets, and session cleanup. It records Google, Bing, and public LinkedIn
+access in `scratch/playwright-mcp-results.json`. LinkedIn dismiss controls are tried before access
+is classified.
 
 ```sh
-venv/bin/python -m inspect_evals.ara_env.playwright_mcp_smoke
+venv/bin/python -m inspect_evals.ara_env.playwright_mcp_smoke \
+  --query "Example Person example company GitHub" \
+  --linkedin-url "https://www.linkedin.com/company/example"
 ```

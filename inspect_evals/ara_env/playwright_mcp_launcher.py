@@ -19,6 +19,23 @@ from browser_use_sdk.v4 import BrowserUse
 API_KEY_NAME = "BROWSER_USE_API_KEY"
 CDP_ENDPOINT_NAME = "ARA_BROWSER_CDP_ENDPOINT"
 
+# Playwright documents origin filters as defense in depth, not a security
+# boundary. These patterns still prevent direct requests to common local,
+# private, link-local, and task-only names from the remote browser.
+PRIVATE_ORIGIN_BLOCKS = (
+    "localhost",
+    "127.*",
+    "[::1]",
+    "0.0.0.0",
+    "10.*",
+    "100.64.*",
+    "169.254.*",
+    *(f"172.{second}.*" for second in range(16, 32)),
+    "192.168.*",
+    "host.docker.internal",
+    "*.local",
+)
+
 
 def _redact_values(message: str, secrets: list[str]) -> str:
     for secret in secrets:
@@ -83,6 +100,8 @@ def _mcp_environment(source: Mapping[str, str], cdp_endpoint: str) -> dict[str, 
         PLAYWRIGHT_MCP_TIMEOUT_NAVIGATION=timeout,
         PLAYWRIGHT_MCP_IDLE_TIMEOUT="300000",
         PLAYWRIGHT_MCP_CODEGEN="none",
+        PLAYWRIGHT_MCP_BLOCKED_ORIGINS=";".join(PRIVATE_ORIGIN_BLOCKS),
+        PLAYWRIGHT_MCP_BLOCK_SERVICE_WORKERS="true",
     )
     return env
 

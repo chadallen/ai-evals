@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from inspect_evals.ara_env.browser_use_spike import (
+    dismiss_linkedin_marketing,
     navigate_result,
     page_result,
     redact_error,
@@ -26,12 +27,20 @@ class FakeLocator:
     def count(self) -> int:
         return self.link_count
 
+    @property
+    def first(self):
+        return self
+
+    def click(self, timeout: int):
+        assert timeout == 3_000
+
 
 class FakePage:
     def __init__(self):
         self.url = "about:blank"
         self.visits = []
         self.waits = []
+        self.keyboard = SimpleNamespace(press=lambda key: None)
 
     def goto(self, url: str, **kwargs):
         self.url = url
@@ -128,6 +137,48 @@ def test_navigation_gives_captcha_solver_more_time():
     assert result["initial_block_markers"] == ["unusual traffic"]
     assert result["captcha_wait_seconds"] == 12
     assert result["usable"]
+
+
+def test_linkedin_marketing_prompt_is_dismissed_before_classification():
+    page = FakePage()
+    dismissed = []
+
+    class DismissButton(FakeLocator):
+        def click(self, timeout: int):
+            assert timeout == 3_000
+            dismissed.append(True)
+
+    def locator(selector):
+        if selector == "button[aria-label='Dismiss']":
+            return DismissButton(count=1)
+        if selector == "body":
+            assert dismissed
+            return FakeLocator("Useful LinkedIn profile " * 30)
+        if selector == "a[href]":
+            return FakeLocator(count=12)
+        return FakeLocator(count=0)
+
+    page.locator = locator
+    result = navigate_result("linkedin_public", "https://linkedin.test/in/person", page)
+
+    assert result["marketing_prompt"] == {
+        "attempted": ["button[aria-label='Dismiss']"],
+        "dismissed": True,
+    }
+    assert result["usable"]
+
+
+def test_linkedin_dismissal_records_escape_when_no_button_exists():
+    page = FakePage()
+    keys = []
+    page.keyboard = SimpleNamespace(press=keys.append)
+    page.locator = lambda selector: FakeLocator(count=0)
+
+    result = dismiss_linkedin_marketing(page)
+
+    assert result["dismissed"] is False
+    assert result["attempted"] == ["Escape"]
+    assert keys == ["Escape"]
 
 
 def test_run_spike_stops_session_and_reports_cost():

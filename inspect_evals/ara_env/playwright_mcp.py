@@ -7,6 +7,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from inspect_ai.approval import ApprovalPolicy, auto_approver, human_approver
 from inspect_ai.solver import Generate, Solver, TaskState, generate, solver, use_tools
 from inspect_ai.tool import Tool, ToolDef, ToolSource, mcp_connection, mcp_server_stdio, mcp_tools
 
@@ -35,6 +36,36 @@ PLAYWRIGHT_READ_ONLY_TOOL_NAMES = (
     "browser_find",
     "browser_wait_for",
     "browser_tabs",
+)
+
+# These tools are present in the pinned server but withheld from the solver.
+# The list documents capabilities whose accidental exposure would expand the
+# containment boundary or allow the model to bypass the reviewed action set.
+PLAYWRIGHT_WITHHELD_TOOL_NAMES = (
+    "browser_evaluate",
+    "browser_run_code",
+    "browser_run_code_unsafe",
+    "browser_file_upload",
+    "browser_drag",
+    "browser_route",
+    "browser_route_remove",
+    "browser_localstorage",
+    "browser_sessionstorage",
+    "browser_take_screenshot",
+)
+
+# Tabs need argument-aware rules: listing is passive, while opening, closing,
+# and selecting changes browser state. Snapshot file output is also a host-side
+# write, even though an in-memory snapshot is passive.
+PLAYWRIGHT_HUMAN_APPROVAL_PATTERNS = (
+    "browser_click",
+    "browser_type",
+    "browser_fill_form",
+    "browser_press_key",
+    "browser_tabs*action='new'*",
+    "browser_tabs*action='close'*",
+    "browser_tabs*action='select'*",
+    "browser_snapshot*filename=*",
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -75,6 +106,17 @@ def playwright_browser_tools(
     )
     names = PLAYWRIGHT_BROWSER_TOOL_NAMES if interactive else PLAYWRIGHT_READ_ONLY_TOOL_NAMES
     return mcp_tools(server, tools=list(names))
+
+
+def playwright_approval_policies() -> list[ApprovalPolicy]:
+    """Gate browser interactions while allowing passive calls automatically."""
+    return [
+        ApprovalPolicy(
+            approver=human_approver(),
+            tools=list(PLAYWRIGHT_HUMAN_APPROVAL_PATTERNS),
+        ),
+        ApprovalPolicy(approver=auto_approver(), tools="*"),
+    ]
 
 
 @solver
