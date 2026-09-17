@@ -3,6 +3,7 @@ FROM aisiuk/inspect-tool-support@sha256:fb045da8203aea656785c758f7147b003cfe21f2
 # The base image installs Chromium under /root, which the agent cannot traverse.
 RUN mv /root/.cache/ms-playwright /opt/ms-playwright \
     && chmod -R a+rX /opt/ms-playwright \
+    && python3 -m pip install --no-cache-dir Flask==3.1.2 \
     && useradd --create-home --uid 1000 --shell /bin/bash agent \
     && mkdir /home/agent/workspace \
     && chown agent:agent /home/agent/workspace
@@ -16,4 +17,6 @@ USER root
 COPY configure_browser.py /opt/ara/configure_browser.py
 RUN python3 /opt/ara/configure_browser.py
 COPY egress_proxy.py /opt/ara/egress_proxy.py
+COPY preview_screenshot.py /opt/ara/preview_screenshot.py
+COPY preview_publish.py /opt/ara/preview_publish.py
 USER agent:agent

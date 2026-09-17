@@ -815,16 +815,19 @@ def test_launcher_kills_signal_ignoring_child_and_removes_workspace(tmp_path, si
             process.wait(timeout=2)
 
 
-def test_code_container_has_no_network_credentials_or_host_mounts():
+def test_code_container_has_only_preview_network_and_no_credentials_or_mounts():
     import yaml
 
     compose = yaml.safe_load(
         (Path(playwright_mcp.__file__).with_name("compose.yaml")).read_text()
     )
     code = compose["services"]["default"]
-    assert code["network_mode"] == "none"
-    assert "networks" not in code
+    assert code["networks"] == ["preview_internal"]
     assert "ports" not in code
+    assert compose["services"]["preview_publish"]["ports"] == [
+        "127.0.0.1:8000:8000"
+    ]
+    assert compose["networks"]["preview_internal"]["internal"] is True
     assert "volumes" not in code
     serialized = json.dumps(code)
     assert playwright_mcp.API_KEY_NAME not in serialized

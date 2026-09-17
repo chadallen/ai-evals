@@ -7,7 +7,9 @@ import asyncio
 import json
 import os
 import re
+import socket
 import subprocess
+import urllib.request
 from pathlib import Path
 from uuid import uuid4
 
@@ -27,6 +29,7 @@ from inspect_ai.util._store import init_subtask_store
 
 from inspect_evals.ara_env.browser_tools import browser_tools
 from inspect_evals.ara_env.email_tools import read_email, send_email, sent_messages, setup_email
+from inspect_evals.ara_env.local_preview_tools import local_preview_tools
 
 COMPOSE = Path(__file__).with_name("compose.yaml")
 
@@ -58,7 +61,7 @@ def test_nonroot_tools_and_privilege_boundary(tmp_path):
     try:
         subprocess.run([*command, "up", "--build", "-d"], check=True)
         asyncio.run(check_tools(project_name, tmp_path, compose))
-        for service in ("default", "browser", "egress"):
+        for service in ("default", "preview", "preview_publish", "browser", "egress"):
             container = subprocess.check_output([*command, "ps", "-q", service], text=True).strip()
             info = json.loads(subprocess.check_output(["docker", "inspect", container], text=True))[
                 0
@@ -67,27 +70,38 @@ def test_nonroot_tools_and_privilege_boundary(tmp_path):
             assert info["Config"]["User"] == "agent:agent"
             assert info["HostConfig"]["CapDrop"] == ["ALL"]
             assert "no-new-privileges:true" in info["HostConfig"]["SecurityOpt"]
-            assert not info["HostConfig"]["PortBindings"]
-            if service == "default":
-                assert info["HostConfig"]["NetworkMode"] == "none"
-            if service == "egress":
+            if service == "preview_publish":
+                binding = info["HostConfig"]["PortBindings"]["8000/tcp"]
+                assert binding == [{"HostIp": "127.0.0.1", "HostPort": "8000"}]
+            else:
+                assert not info["HostConfig"]["PortBindings"]
+            if service in {"egress", "preview_publish"}:
                 assert info["HostConfig"]["ReadonlyRootfs"]
-        network = json.loads(
-            subprocess.check_output(
-                ["docker", "network", "inspect", f"{project_name}_browser_internal"], text=True
-            )
-        )[0]
-        assert network["Internal"]
-        assert network["Options"]["com.docker.network.bridge.gateway_mode_ipv4"] == "isolated"
+        for network_name in ("browser_internal", "preview_internal"):
+            network = json.loads(
+                subprocess.check_output(
+                    ["docker", "network", "inspect", f"{project_name}_{network_name}"], text=True
+                )
+            )[0]
+            assert network["Internal"]
+            assert network["Options"]["com.docker.network.bridge.gateway_mode_ipv4"] == "isolated"
+        assert "Landing page ready" in urllib.request.urlopen(
+            "http://127.0.0.1:8000/", timeout=3
+        ).read().decode()
     finally:
         subprocess.run([*command, "down", "--volumes", "--rmi", "local"], check=True)
+    with pytest.raises(OSError):
+        socket.create_connection(("127.0.0.1", 8000), timeout=1)
 
 
 async def check_tools(project_name, tmp_path, compose):
     project = await ComposeProject.create(project_name, str(compose))
     environment = DockerSandboxEnvironment("default", project, "/home/agent/workspace")
+    preview = DockerSandboxEnvironment("preview", project, "/home/agent/workspace")
     browser = DockerSandboxEnvironment("browser", project, "/home/agent/workspace")
-    context = sandbox_environments_context_var.set({"default": environment, "browser": browser})
+    context = sandbox_environments_context_var.set(
+        {"default": environment, "preview": preview, "browser": browser}
+    )
     default = sandbox_default_context_var.set("default")
     injection = sandbox_with_environments_context_var.set({})
     state = TaskState(
@@ -141,6 +155,39 @@ print("permissions verified")
             "curl --max-time 2 http://93.184.216.34; test $? -ne 0 && echo shell-offline"
         )
         assert "shell-offline" in shell_offline
+        launched = await environment.exec(
+            [
+                "sh",
+                "-c",
+                "mkdir -p site/templates && "
+                "printf '<h1>Landing page ready</h1><button>Continue</button>' "
+                "> site/templates/index.html && "
+                "printf 'from flask import Flask, render_template\\n"
+                "app = Flask(__name__)\\n"
+                "@app.get(\"/\")\\n"
+                "def index(): return render_template(\"index.html\")\\n"
+                "app.run(host=\"0.0.0.0\", port=8000)\\n' > site/app.py && "
+                "nohup python3 site/app.py >/tmp/flask.log 2>&1 &",
+            ]
+        )
+        assert launched.success, launched.stderr
+        for _ in range(30):
+            ready = await preview.exec(
+                ["python3", "-c", "import urllib.request; print(urllib.request.urlopen('http://default:8000/', timeout=1).status)"],
+                timeout=2,
+            )
+            if ready.success:
+                break
+            await asyncio.sleep(0.1)
+        assert ready.success and "200" in ready.stdout, ready.stderr
+
+        preview_tools = {ToolDef(tool).name: tool for tool in local_preview_tools()}
+        local_page = str(await preview_tools["local_preview_go"]("http://default:8000/"))
+        assert "Landing page ready" in local_page
+        image = await preview_tools["local_preview_screenshot"]("http://default:8000/")
+        assert image.image.startswith("data:image/png;base64,")
+        preview_probe = await preview.exec(["python3", "-c", PREVIEW_PROBE], timeout=20)
+        assert preview_probe.success and "preview isolated" in preview_probe.stdout
         # A fake discovery executable in code must not hijack browser routing.
         await environment.exec(
             [
@@ -167,6 +214,7 @@ print("permissions verified")
             "http://[::1]",
             "http://public.test/redirect",
             "http://public.test:25",
+            "http://default:8000",
         ]:
             try:
                 blocked = str(await tools[0](url))
@@ -271,4 +319,26 @@ assert 'NoNewPrivs:\\t1' in status
 assert 'CapEff:\\t0000000000000000' in status
 assert 'CapBnd:\\t0000000000000000' in status
 print('browser direct blocked')
+"""
+
+PREVIEW_PROBE = """
+import socket
+from pathlib import Path
+assert not Path('/var/run/docker.sock').exists()
+assert socket.getaddrinfo('default', 8000)
+for host in ['example.com', 'browser', 'egress', 'host.docker.internal']:
+    try:
+        socket.getaddrinfo(host, 80)
+    except OSError:
+        pass
+    else:
+        raise AssertionError(host)
+for host in ['1.1.1.1', '192.168.65.1', '169.254.169.254']:
+    try:
+        socket.create_connection((host, 80), timeout=0.5)
+    except OSError:
+        pass
+    else:
+        raise AssertionError(host)
+print('preview isolated')
 """

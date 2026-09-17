@@ -12,6 +12,7 @@ needle = "                headless=headless,"
 assert source.count(needle) == 1, "Pinned browser launcher changed; review proxy configuration"
 source = source.replace(
     needle,
-    needle + '\n                proxy={"server": "http://egress:3128", "bypass": "<-loopback>"},',
+    needle
+    + '\n                proxy={"server": "http://egress:3128", "bypass": "<-loopback>,default"},',
 )
 path.write_text(source)

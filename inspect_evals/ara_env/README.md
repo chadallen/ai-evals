@@ -128,6 +128,30 @@ venv/bin/inspect eval inspect_evals/ara_env/spearphish.py \
   --limit 1
 ```
 
+The landing-page workflow uses one sample because host port 8000 is fixed. Preserve its sandbox so
+the generated Flask process remains available for human review after Inspect exits:
+
+```sh
+venv/bin/python -m inspect_ai eval inspect_evals/ara_env/spearphish.py \
+  --model anthropic/claude-opus-4-7 \
+  --reasoning-effort medium \
+  --epochs 1 \
+  --limit 1 \
+  --max-samples 1 \
+  --no-sandbox-cleanup
+```
+
+Open `http://127.0.0.1:8000/` while the preserved environment is running. A concurrent sample or
+another preserved run cannot bind the same port. After review, remove preserved Inspect Docker
+environments with:
+
+```sh
+venv/bin/inspect sandbox cleanup docker
+```
+
+That cleanup command removes every preserved Inspect Docker environment on the machine. Do not run
+it while another evaluation or review environment is still needed.
+
 Browser Use charges vary with session length and proxy traffic. Its no-model smoke reports use
 `browser_cost_usd`, `proxy_cost_usd`, `proxy_used_mb`, and `total_cost_usd`. The eval log and saved
 email artifact are the task outputs; provider usage is checked through Browser Use or a smoke report.
@@ -154,13 +178,26 @@ requires rebuilding the image; the solver cannot become root to install them.
 
 | Component | Execution environment | Permitted network use |
 |---|---|---|
-| Bash and Python | `default` container | None; `network_mode: none` |
+| Bash and Python | `default` container | Preview network only; no public or host route |
 | Playwright MCP browser | Host subprocess plus Browser Use Cloud | Public web through the cloud browser |
+| Local preview browser | `preview` container | Generated Flask site only |
+| Preview publisher | `preview_publish` container | Port 8000 relay from host loopback to Flask |
 | Tavily search (`ara_env` only) | Host Inspect process | Host requests to Tavily |
 | Email | Host Inspect process | None; local JSON artifacts |
 
 Inspect fixes bash and Python to `default`; the agent cannot supply a sandbox name.
-No solver tool executes code in the remote browser. No container mounts or published ports exist.
+No solver tool executes code in either browser. No container mounts exist. A fixed relay publishes
+the generated site's port 8000 as `127.0.0.1:8000`, so it is available only through host loopback.
+
+The `default` and `preview` services share the internal `preview_internal` network. Neither service
+joins the external network. The preview browser can resolve the generated site as `default`, but it
+cannot resolve the public-browser services or route to the Internet or host gateway. The helper in
+`local_preview_tools.py` gives its tools `local_preview_*` names and includes a full-page screenshot
+tool. This keeps their model-facing names separate from the public `browser_*` tools.
+
+`preview_publish` is a trusted TCP relay with no solver tool. It accepts only port 8000 and always
+connects to `default:8000`; it cannot select another destination. The site and local browser do not
+join its host-facing network.
 
 The compose file retains a local Chromium sidecar and egress proxy for controlled integration tests.
 Neither task exposes that browser to the solver. The sidecar connects only to an internal Docker

@@ -11,8 +11,18 @@ x-restricted: &restricted
 services:
   default:
     <<: *restricted
-    # Code has neither an external route nor access to the browser controller.
-    network_mode: none
+    # The internal network lets the generated site reach only its preview browser.
+    networks: [preview_internal]
+  preview:
+    <<: *restricted
+    networks: [preview_internal]
+  preview_publish:
+    <<: *restricted
+    command: python3 /opt/ara/preview_publish.py
+    networks: [preview_internal, host_preview]
+    ports:
+      - "127.0.0.1:8000:8000"
+    read_only: true
   browser:
     <<: *restricted
     networks: [browser_internal]
@@ -27,6 +37,11 @@ services:
     cpus: 1.0
 
 networks:
+  preview_internal:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+  host_preview: {}
   browser_internal:
     internal: true
     driver_opts:
