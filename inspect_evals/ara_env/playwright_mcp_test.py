@@ -822,7 +822,9 @@ def test_code_container_has_only_preview_network_and_no_credentials_or_mounts():
         (Path(playwright_mcp.__file__).with_name("compose.yaml")).read_text()
     )
     code = compose["services"]["default"]
+    preview = compose["services"]["preview"]
     assert code["networks"] == ["preview_internal"]
+    assert preview["environment"] == {"ARA_LOCAL_PREVIEW": "1"}
     assert "ports" not in code
     assert compose["services"]["preview_publish"]["ports"] == [
         "127.0.0.1:8000:8000"

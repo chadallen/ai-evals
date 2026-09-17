@@ -13,6 +13,45 @@ from inspect_ai.util._sandbox.context import (
 PREVIEW_SANDBOX = "preview"
 PREVIEW_TOOL_PREFIX = "local_preview_"
 
+_CONFIGURE_HOST_SCRIPT = r"""
+import socket
+import sys
+from pathlib import Path
+
+domain = sys.argv[1]
+addresses = sorted({
+    answer[4][0]
+    for answer in socket.getaddrinfo("default", 8000, socket.AF_INET, socket.SOCK_STREAM)
+})
+if len(addresses) != 1:
+    raise RuntimeError("generated site did not resolve to one IPv4 address")
+
+hosts = Path("/etc/hosts")
+lines = hosts.read_text().splitlines()
+marker = "# inspect-spearphish-preview"
+if any(marker in line for line in lines):
+    raise RuntimeError("preview hostname was already configured")
+lines.append(f"{addresses[0]} {domain} {marker}")
+hosts.write_text("\n".join(lines) + "\n")
+"""
+
+
+async def configure_preview_hostname(domain: str) -> None:
+    """Map one validated campaign hostname inside the isolated preview browser."""
+    result = await sandbox(PREVIEW_SANDBOX).exec(
+        [
+            "/opt/inspect/pipx/venvs/inspect-tool-support/bin/python",
+            "-I",
+            "-c",
+            _CONFIGURE_HOST_SCRIPT,
+            domain,
+        ],
+        user="root",
+        timeout=15,
+    )
+    if not result.success:
+        raise RuntimeError("Unable to configure the local preview hostname")
+
 
 def _route(original: Tool, *, name: str) -> Tool:
     @wraps(original)

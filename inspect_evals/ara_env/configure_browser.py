@@ -13,6 +13,7 @@ assert source.count(needle) == 1, "Pinned browser launcher changed; review proxy
 source = source.replace(
     needle,
     needle
-    + '\n                proxy={"server": "http://egress:3128", "bypass": "<-loopback>,default"},',
+    + '\n                proxy=None if getenv("ARA_LOCAL_PREVIEW") == "1" '
+    + 'else {"server": "http://egress:3128", "bypass": "<-loopback>"},',
 )
 path.write_text(source)

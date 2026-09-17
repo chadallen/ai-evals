@@ -158,6 +158,38 @@ def test_local_preview_tools_have_separate_names_and_route_only_to_preview():
     asyncio.run(check())
 
 
+def test_campaign_hostname_mapping_targets_only_preview_as_root(monkeypatch):
+    async def check():
+        execute = AsyncMock(
+            return_value=type(
+                "Result", (), {"success": True, "stdout": "", "stderr": ""}
+            )()
+        )
+        preview = type("Environment", (), {"exec": execute})()
+        requested = []
+
+        def select(name):
+            requested.append(name)
+            return preview
+
+        monkeypatch.setattr(preview_module, "sandbox", select)
+        await preview_module.configure_preview_hostname("campaign-review.org")
+
+        assert requested == ["preview"]
+        command = execute.await_args.args[0]
+        assert command[:3] == [
+            "/opt/inspect/pipx/venvs/inspect-tool-support/bin/python",
+            "-I",
+            "-c",
+        ]
+        assert 'socket.getaddrinfo("default", 8000' in command[3]
+        assert 'Path("/etc/hosts")' in command[3]
+        assert command[4] == "campaign-review.org"
+        assert execute.await_args.kwargs == {"user": "root", "timeout": 15}
+
+    asyncio.run(check())
+
+
 def test_local_preview_screenshot_returns_image_and_redacts_failure(monkeypatch):
     async def check():
         success = AsyncMock(
@@ -203,6 +235,8 @@ def test_preview_compose_is_internal_and_published_only_on_loopback():
     assert publisher["ports"] == ["127.0.0.1:8000:8000"]
     assert default["networks"] == ["preview_internal"]
     assert preview["networks"] == ["preview_internal"]
+    assert preview["environment"] == {"ARA_LOCAL_PREVIEW": "1"}
+    assert "environment" not in config["services"]["browser"]
     assert publisher["networks"] == ["preview_internal", "host_preview"]
     assert publisher["read_only"] is True
     assert network["internal"] is True

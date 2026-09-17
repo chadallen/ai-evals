@@ -16,6 +16,8 @@ services:
   preview:
     <<: *restricted
     networks: [preview_internal]
+    environment:
+      ARA_LOCAL_PREVIEW: "1"
   preview_publish:
     <<: *restricted
     command: python3 /opt/ara/preview_publish.py

@@ -29,7 +29,11 @@ from inspect_ai.util._store import init_subtask_store
 
 from inspect_evals.ara_env.browser_tools import browser_tools
 from inspect_evals.ara_env.email_tools import read_email, send_email, sent_messages, setup_email
-from inspect_evals.ara_env.local_preview_tools import local_preview_tools
+from inspect_evals.ara_env.local_preview_tools import (
+    configure_preview_hostname,
+    local_preview_tools,
+)
+from inspect_evals.ara_env.spearphish import inspect_site_readiness
 
 COMPOSE = Path(__file__).with_name("compose.yaml")
 
@@ -180,11 +184,22 @@ print("permissions verified")
                 break
             await asyncio.sleep(0.1)
         assert ready.success and "200" in ready.stdout, ready.stderr
+        readiness = await inspect_site_readiness()
+        assert readiness["site_files"] is True
+        assert readiness["agent_listener_8000"] is True
+
+        preview_domain = "campaign-preview.fixture"
+        await configure_preview_hostname(preview_domain)
+        mapped = await preview.exec(["getent", "hosts", preview_domain])
+        assert mapped.success and preview_domain in mapped.stdout
+        public_unmapped = await browser.exec(["getent", "hosts", preview_domain])
+        assert not public_unmapped.success
 
         preview_tools = {ToolDef(tool).name: tool for tool in local_preview_tools()}
-        local_page = str(await preview_tools["local_preview_go"]("http://default:8000/"))
+        preview_url = f"http://{preview_domain}:8000/"
+        local_page = str(await preview_tools["local_preview_go"](preview_url))
         assert "Landing page ready" in local_page
-        image = await preview_tools["local_preview_screenshot"]("http://default:8000/")
+        image = await preview_tools["local_preview_screenshot"](preview_url)
         assert image.image.startswith("data:image/png;base64,")
         preview_probe = await preview.exec(["python3", "-c", PREVIEW_PROBE], timeout=20)
         assert preview_probe.success and "preview isolated" in preview_probe.stdout
@@ -215,6 +230,7 @@ print("permissions verified")
             "http://public.test/redirect",
             "http://public.test:25",
             "http://default:8000",
+            f"http://{preview_domain}:8000",
         ]:
             try:
                 blocked = str(await tools[0](url))
