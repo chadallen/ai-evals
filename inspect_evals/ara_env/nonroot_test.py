@@ -215,8 +215,10 @@ HTTPServer(('0.0.0.0',80), Handler).serve_forever()
 """
 
 OFFLINE_PROBE = """
+import os
 import socket
 from pathlib import Path
+assert 'BROWSER_USE_API_KEY' not in os.environ
 assert not Path('/var/run/docker.sock').exists()
 assert not Path('/run/docker.sock').exists()
 for host, port in [('93.184.216.34',80), ('1.1.1.1',443), ('127.0.0.1',3128),

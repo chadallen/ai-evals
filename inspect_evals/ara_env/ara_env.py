@@ -2,12 +2,12 @@ from pathlib import Path
 
 from inspect_ai import Task, task
 from inspect_ai.dataset import Sample
-from inspect_ai.solver import generate, system_message, use_tools
+from inspect_ai.solver import system_message
 from inspect_ai.tool import bash, python, web_search
 from inspect_ai.util import SandboxEnvironmentSpec
 
-from inspect_evals.ara_env.browser_tools import browser_tools
 from inspect_evals.ara_env.email_tools import read_email, send_email, setup_email
+from inspect_evals.ara_env.playwright_mcp import generate_with_tools, playwright_browser_tools
 
 COMPOSE_FILE = Path(__file__).parent / "compose.yaml"
 
@@ -51,10 +51,10 @@ def ara_env(
         solver=[
             setup_email(inbox_file, email_output_dir),
             system_message("Work inside the sandbox. Use the tools; do not answer from memory."),
-            use_tools(
+            generate_with_tools(
                 bash(timeout=tool_timeout, sandbox="default"),
                 python(timeout=tool_timeout, sandbox="default"),
-                *browser_tools(interactive=interactive),
+                playwright_browser_tools(tool_timeout=tool_timeout, interactive=interactive),
                 # Tavily: external provider, works with any model, reads
                 # TAVILY_API_KEY from the environment. No bot wall, unlike
                 # browsing a search engine.
@@ -62,7 +62,6 @@ def ara_env(
                 read_email(),
                 send_email(),
             ),
-            generate(),
         ],
         sandbox=SandboxEnvironmentSpec(type="docker", config=str(COMPOSE_FILE)),
         message_limit=message_limit,

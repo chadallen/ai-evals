@@ -1,9 +1,9 @@
 # ARA environment
 
 The environment provides shell, Python, browser, web search, and email tools.
-Shell and Python run in an offline Docker container. Chromium runs in a separate container
-with public web access through an egress proxy. Web search uses Tavily on the host.
-Email tools run in the host Inspect process and never connect to a mail server.
+Shell and Python run in an offline Docker container. The `ara_env` wiring task connects
+Microsoft Playwright MCP to a Browser Use Cloud browser. `spearphish` retains the Docker browser
+and Tavily path. Email tools run in the host Inspect process and never connect to a mail server.
 
 ## Email interface
 
@@ -122,7 +122,8 @@ requires rebuilding the image; the solver cannot become root to install them.
 | Component | Execution environment | Permitted network use |
 |---|---|---|
 | Bash and Python | `default` container | None; `network_mode: none` |
-| Browser tools | `browser` container | Public IPv4 HTTP port 80 and HTTPS port 443 through proxy |
+| Playwright MCP browser | Host subprocess plus Browser Use Cloud | Public web through the cloud browser |
+| Spearphish browser tools | `browser` container | Public IPv4 HTTP port 80 and HTTPS port 443 through proxy |
 | Egress proxy | `egress` container | Resolves and connects to checked public web destinations |
 | Tavily search | Host Inspect process | Host requests to Tavily |
 | Email | Host Inspect process | None; local JSON artifacts |
@@ -156,6 +157,22 @@ Offline code cannot install packages from the internet, fetch datasets, call API
 browser controller. Dependencies must be built into the image. Browser downloads stay in the browser
 container; no automatic file-transfer bridge exists. Neither existing task needs one.
 
+### Playwright MCP browser
+
+The host runs pinned `@playwright/mcp` through Inspect's stdio MCP client. The solver receives
+separate tools for navigation, snapshots, page search, clicks, typing, forms, key presses, waits,
+and tabs. Inspect filters the server's full tool list. It does not expose JavaScript evaluation,
+unsafe code, uploads, drag-and-drop, network mutation, storage mutation, or screenshots.
+
+The launcher creates one Browser Use Cloud raw-browser session for each Inspect sample. It passes
+the returned Chrome DevTools Protocol endpoint to Playwright MCP through the child environment.
+The Browser Use API key is removed from the Playwright process environment. The launcher stops the
+cloud session when Inspect closes the MCP connection. Tool and navigation timeouts are bounded.
+
+Set `BROWSER_USE_API_KEY` in `.env` for Browser Use Cloud. To use another compatible provider, set
+`ARA_BROWSER_CDP_ENDPOINT` instead. Provider changes do not alter the solver-facing tool names.
+Install the pinned server with `npm ci --ignore-scripts` after cloning the repository.
+
 The pinned launcher retains Playwright's disabled Chromium internal sandbox. Enabling it with
 `chromium_sandbox=True` failed with `No usable sandbox!` under the retained Docker restrictions.
 No privileges or seccomp restrictions were relaxed. Docker isolation, the non-root user, and the
@@ -169,6 +186,8 @@ venv/bin/ruff check .
 ```
 
 Tests exercise the actual email tools and persisted-artifact scorer without model calls or containers.
+They also start the pinned Playwright MCP server against a non-listening test endpoint to verify the
+filtered tool list without creating a browser session.
 
 The opt-in integration check builds disposable code, browser, proxy, and controlled website containers.
 It calls actual Inspect shell, Python, and browser tools, checks HTTP/HTTPS navigation and clicks,
@@ -199,3 +218,13 @@ venv/bin/python inspect_evals/ara_env/browser_use_spike.py \
 The report is written to `scratch/browser-use-spike-results.json`, which is excluded from git.
 Browser access and proxy charges vary by run, so retain results from more than one run before
 choosing a backend.
+
+### Playwright MCP integration check
+
+This check creates one billed Browser Use browser without calling a solver model. It verifies the
+reviewed MCP tool list, an accessibility snapshot, cookie support, history state across calls, and
+session cleanup.
+
+```sh
+venv/bin/python -m inspect_evals.ara_env.playwright_mcp_smoke
+```

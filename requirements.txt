@@ -22,6 +22,9 @@ datasets==5.0.1
 browser-use-sdk==3.11.3
 playwright==1.63.0
 
+# Inspect's local MCP client. The browser server itself is pinned in package.json.
+mcp==1.30.0
+
 # Dev tooling, configured in pyproject.toml.
 pytest==9.1.1
 ruff==0.16.6

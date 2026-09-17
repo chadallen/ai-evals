@@ -3,6 +3,7 @@
 import asyncio
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from inspect_ai.model import ChatMessageUser
@@ -137,12 +138,24 @@ def test_duplicate_inbox_ids_rejected(tmp_path):
 
 @pytest.mark.parametrize("factory", [ara_env, spearphish])
 def test_task_wiring_without_model_or_sandbox(tmp_path, factory):
-    task = factory(email_output_dir=str(tmp_path), message_limit=7)
+    if factory is ara_env:
+        with patch(
+            "inspect_evals.ara_env.ara_env.playwright_browser_tools", return_value=[]
+        ):
+            task = factory(email_output_dir=str(tmp_path), message_limit=7)
+    else:
+        task = factory(email_output_dir=str(tmp_path), message_limit=7)
     sample = state()
 
     async def run():
         await task.solver[0](sample, None)
-        await task.solver[2](sample, None)
+        if factory is ara_env:
+            async def no_generate(current, **kwargs):
+                return current
+
+            await task.solver[2](sample, no_generate)
+        else:
+            await task.solver[2](sample, None)
 
     asyncio.run(run())
     names = {ToolDef(t).name for t in sample.tools}
