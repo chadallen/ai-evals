@@ -249,10 +249,14 @@ choosing a backend.
 ### Playwright MCP integration check
 
 This check creates one billed Browser Use browser without calling a solver model. It verifies the
-reviewed MCP tool list, an accessibility snapshot, cookie support, history state across calls,
-blocked local and file targets, and session cleanup. It records Google, Bing, and public LinkedIn
-access in `scratch/playwright-mcp-results.json`. LinkedIn dismiss controls are tried before access
-is classified.
+reviewed MCP tool list, an accessibility snapshot, history state across calls, and records the
+public cookie tester's result. It also checks blocked local and file targets and session cleanup.
+The check stops the live provider session, then verifies that the next MCP call fails within 15
+seconds. It records Google, Bing, and public
+LinkedIn access in `scratch/playwright-mcp-results.json`. Every public navigation is followed by an
+inline accessibility snapshot. LinkedIn dismiss controls found in that snapshot are tried before a
+fresh snapshot is classified. Each check has its own timeout, and the report is written even when a
+check or setup fails.
 
 ```sh
 venv/bin/python -m inspect_evals.ara_env.playwright_mcp_smoke \
