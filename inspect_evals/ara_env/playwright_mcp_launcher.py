@@ -26,6 +26,10 @@ CDP_ENDPOINT_NAME = "ARA_BROWSER_CDP_ENDPOINT"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SHUTDOWN_GRACE_SECONDS = 2.0
 SHUTDOWN_KILL_SECONDS = 2.0
+NAVIGATION_POLICY_ERROR = (
+    "Navigation URL must be a well-formed HTTP or HTTPS URL "
+    "without embedded credentials."
+)
 
 
 class _ShutdownRequested(BaseException):
@@ -138,10 +142,7 @@ def _request_error(request: object) -> dict[str, object] | None:
         "id": request.get("id"),
         "error": {
             "code": -32602,
-            "message": (
-                "Navigation URL must be a well-formed HTTP or HTTPS URL "
-                "without embedded credentials."
-            ),
+            "message": NAVIGATION_POLICY_ERROR,
         },
     }
 

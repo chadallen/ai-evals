@@ -178,7 +178,8 @@ The proxy does not decrypt HTTPS or prove that every byte on port 443 is HTTP.
 
 Live browsing can disclose search terms and page URLs to public services. It is not an
 exfiltration-prevention policy. Human approval gates apply to spearphish browser interactions.
-Host and private destinations are blocked, while public services remain reachable.
+Host and private destinations are configured in Playwright's blocked-origin list. The cloud smoke
+counts them as rejected only when Playwright returns `ERR_BLOCKED_BY_CLIENT`.
 
 Offline code cannot install packages from the internet, fetch datasets, call APIs, or reach the
 browser controller. Dependencies must be built into the image. Browser downloads are not transferred
@@ -213,11 +214,11 @@ Set `BROWSER_USE_API_KEY` in `.env` for Browser Use Cloud. To use another compat
 `ARA_BROWSER_CDP_ENDPOINT` instead. Provider changes do not alter the solver-facing tool names.
 Install the pinned server with `npm ci --ignore-scripts` after cloning the repository.
 
-The Playwright process blocks direct requests to loopback, private IPv4, link-local, Docker-host,
-and `.local` targets. Playwright states that its origin filters do not cover redirects and are not a
+The Playwright process configures origin filters for loopback, private IPv4, link-local, Docker-host,
+and `.local` targets. Playwright states that its filters do not cover redirects and are not a
 security boundary. The remote provider cannot address services on the task's local Docker networks,
 and the offline code container has no route to the host MCP process. These topology controls are the
-security boundary. File URLs remain disabled by Playwright's default workspace restrictions.
+security boundary. The host launcher rejects file URLs before Playwright receives the call.
 
 Browser Use bills browser time and may bill proxy traffic. The feasibility report records
 `browser_cost_usd`, `proxy_cost_usd`, `proxy_used_mb`, and `total_cost_usd` from the stopped session.
@@ -277,7 +278,7 @@ choosing a backend.
 
 This check creates one billed Browser Use browser without calling a solver model. It verifies the
 reviewed MCP tool list, an accessibility snapshot, history state across calls, and records the
-public cookie tester's result. It also checks blocked local and file targets and session cleanup.
+public cookie tester's result. It also checks containment outcomes and session cleanup.
 The check stops the live provider session, then polls bounded MCP navigations until they observe the
 shutdown or 15 seconds pass. The report records the attempt count and elapsed time. It also records
 Google, Bing, and public
@@ -285,6 +286,16 @@ LinkedIn access in `scratch/playwright-mcp-results.json`. Every public navigatio
 inline accessibility snapshot. LinkedIn dismiss controls found in that snapshot are tried before a
 fresh snapshot is classified. Each check has its own timeout, and the report is written even when a
 check or setup fails.
+
+Containment probes report one of five outcomes: `policy_rejection`, `destination_reached`,
+`connection_refused`, `provider_failure`, or `timeout`. Only the launcher's exact navigation-policy
+error and Playwright's `ERR_BLOCKED_BY_CLIENT` establish policy rejection. Generic exceptions,
+closed ports, provider failures, and timeouts receive no enforcement credit. A successful
+`https://example.com/` control proves that the browser could navigate during the same session.
+The `file:` probe proves that the host launcher rejected the request before it reached Playwright;
+unit tests also verify that the rejected request writes no bytes to the MCP server. Private HTTP
+probes pass only when Playwright reports its explicit origin-filter rejection. The Docker proxy
+integration above exercises a different local-browser path and does not prove this cloud path.
 
 ```sh
 venv/bin/python -m inspect_evals.ara_env.playwright_mcp_smoke \

@@ -4,8 +4,14 @@ import asyncio
 import json
 
 from inspect_evals.ara_env.playwright_mcp_smoke import (
+    CONNECTION_REFUSED,
+    DESTINATION_REACHED,
+    POLICY_REJECTION,
+    PROVIDER_FAILURE,
+    TIMEOUT,
     access_result,
-    blocked_probe,
+    containment_evidence_passed,
+    containment_probe,
     linkedin_dismiss_targets,
     live_site_check,
     main,
@@ -50,23 +56,118 @@ def test_access_result_marks_linkedin_sign_up_after_dismissal():
     ]
 
 
-def test_blocked_probe_accepts_explicit_tool_error():
+def test_containment_probe_records_explicit_host_policy_rejection():
     async def navigate(**kwargs):
-        raise RuntimeError("Request blocked by origin policy")
+        raise RuntimeError(
+            "Navigation URL must be a well-formed HTTP or HTTPS URL "
+            "without embedded credentials."
+        )
 
-    result = asyncio.run(blocked_probe(navigate, "http://127.0.0.1"))
+    result = asyncio.run(containment_probe(navigate, "file:///etc/passwd"))
 
-    assert result["blocked"] is True
-    assert "blocked" in result["result"]
+    assert result["outcome"] == POLICY_REJECTION
+    assert result["policy_enforced"] is True
+    assert result["enforcement_layer"] == "host_navigation_policy"
+    assert result["destination_request_received"] is False
+    assert result["request_disposition"] == "rejected_before_playwright"
 
 
-def test_blocked_probe_rejects_successful_private_response():
+def test_containment_probe_records_playwright_origin_rejection():
     async def navigate(**kwargs):
-        return "Private service content"
+        raise RuntimeError("page.goto: net::ERR_BLOCKED_BY_CLIENT")
 
-    result = asyncio.run(blocked_probe(navigate, "http://127.0.0.1"))
+    result = asyncio.run(containment_probe(navigate, "http://127.0.0.1"))
 
-    assert result["blocked"] is False
+    assert result["outcome"] == POLICY_REJECTION
+    assert result["policy_enforced"] is True
+    assert result["enforcement_layer"] == "playwright_origin_filter"
+    assert result["destination_request_received"] is False
+
+
+def test_containment_probe_records_destination_reached_even_with_error_text():
+    async def navigate(**kwargs):
+        return "Application error: request failed"
+
+    result = asyncio.run(containment_probe(navigate, "https://fixture.test"))
+
+    assert result["outcome"] == DESTINATION_REACHED
+    assert result["policy_enforced"] is False
+    assert result["destination_request_received"] is True
+
+
+def test_containment_probe_records_connection_refused_without_policy_credit():
+    async def navigate(**kwargs):
+        raise ConnectionRefusedError("connection refused")
+
+    result = asyncio.run(containment_probe(navigate, "http://127.0.0.1"))
+
+    assert result["outcome"] == CONNECTION_REFUSED
+    assert result["policy_enforced"] is False
+    assert result["destination_request_received"] is False
+
+
+def test_containment_probe_records_provider_failure_without_policy_credit():
+    async def navigate(**kwargs):
+        raise RuntimeError("Request blocked by origin policy: provider failed")
+
+    result = asyncio.run(containment_probe(navigate, "http://127.0.0.1"))
+
+    assert result["outcome"] == PROVIDER_FAILURE
+    assert result["policy_enforced"] is False
+    assert result["destination_request_received"] is None
+
+
+def test_containment_probe_records_timeout_without_policy_credit():
+    async def navigate(**kwargs):
+        await asyncio.sleep(0.05)
+
+    result = asyncio.run(
+        containment_probe(navigate, "http://127.0.0.1", timeout=0.001)
+    )
+
+    assert result["outcome"] == TIMEOUT
+    assert result["policy_enforced"] is False
+    assert result["destination_request_received"] is None
+
+
+def test_report_does_not_accept_non_policy_failure_as_enforcement():
+    provider_failure = {
+        "ok": True,
+        "outcome": PROVIDER_FAILURE,
+        "policy_enforced": False,
+        "destination_request_received": None,
+    }
+    closed_port = {
+        "ok": True,
+        "outcome": CONNECTION_REFUSED,
+        "policy_enforced": False,
+        "destination_request_received": False,
+    }
+
+    assert containment_evidence_passed(provider_failure, POLICY_REJECTION) is False
+    assert containment_evidence_passed(closed_port, POLICY_REJECTION) is False
+
+
+def test_report_requires_named_layer_and_non_arrival_for_policy_evidence():
+    incomplete_policy_result = {
+        "ok": True,
+        "outcome": POLICY_REJECTION,
+        "policy_enforced": True,
+        "destination_request_received": None,
+    }
+    explicit_policy_result = {
+        **incomplete_policy_result,
+        "enforcement_layer": "host_navigation_policy",
+        "destination_request_received": False,
+    }
+
+    assert (
+        containment_evidence_passed(incomplete_policy_result, POLICY_REJECTION)
+        is False
+    )
+    assert (
+        containment_evidence_passed(explicit_policy_result, POLICY_REJECTION) is True
+    )
 
 
 def test_linkedin_dismiss_targets_uses_visible_snapshot_refs_only():

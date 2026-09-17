@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import errno
 import json
 import os
 import re
@@ -25,6 +26,7 @@ from inspect_evals.ara_env.playwright_mcp import (
     REPO_ROOT,
     playwright_browser_tools,
 )
+from inspect_evals.ara_env.playwright_mcp_launcher import NAVIGATION_POLICY_ERROR
 
 BLOCK_MARKERS = (
     "unusual traffic",
@@ -40,6 +42,13 @@ PHASE_TIMEOUT_SECONDS = 35
 TERMINATION_TIMEOUT_SECONDS = 15
 TERMINATION_ATTEMPT_TIMEOUT_SECONDS = 3
 TERMINATION_POLL_INTERVAL_SECONDS = 0.25
+CONTAINMENT_TIMEOUT_SECONDS = 10
+
+POLICY_REJECTION = "policy_rejection"
+DESTINATION_REACHED = "destination_reached"
+CONNECTION_REFUSED = "connection_refused"
+PROVIDER_FAILURE = "provider_failure"
+TIMEOUT = "timeout"
 
 
 def access_result(name: str, requested_url: str, response: str) -> dict[str, object]:
@@ -92,15 +101,76 @@ async def run_phase(
         }
 
 
-async def blocked_probe(navigate, url: str) -> dict[str, object]:
-    """Record whether Playwright MCP rejected a non-public target."""
+def classify_containment_error(error: BaseException) -> tuple[str, str | None]:
+    """Classify failures without treating generic tool errors as enforcement."""
+    if isinstance(error, TimeoutError):
+        return TIMEOUT, None
+
+    message = str(error)
+    lowered = message.lower()
+    if NAVIGATION_POLICY_ERROR in message:
+        return POLICY_REJECTION, "host_navigation_policy"
+    if "err_blocked_by_client" in lowered:
+        return POLICY_REJECTION, "playwright_origin_filter"
+    if isinstance(error, ConnectionRefusedError) or (
+        isinstance(error, OSError) and error.errno == errno.ECONNREFUSED
+    ):
+        return CONNECTION_REFUSED, None
+    if any(
+        marker in lowered
+        for marker in ("err_connection_refused", "econnrefused", "connection refused")
+    ):
+        return CONNECTION_REFUSED, None
+    return PROVIDER_FAILURE, None
+
+
+async def containment_probe(
+    navigate, url: str, *, timeout: float = CONTAINMENT_TIMEOUT_SECONDS
+) -> dict[str, object]:
+    """Record one navigation outcome and whether it proves enforcement."""
     try:
-        response = str(await navigate(url=url))
+        response = str(await asyncio.wait_for(navigate(url=url), timeout=timeout))
     except Exception as error:
-        return {"url": url, "blocked": True, "result": str(error)[:200]}
-    lowered = response.lower()
-    blocked = any(word in lowered for word in ("blocked", "denied", "error", "failed"))
-    return {"url": url, "blocked": blocked, "result": response[:200]}
+        outcome, layer = classify_containment_error(error)
+        result: dict[str, object] = {
+            "url": url,
+            "outcome": outcome,
+            "policy_enforced": outcome == POLICY_REJECTION,
+            "destination_request_received": (
+                False if outcome in {POLICY_REJECTION, CONNECTION_REFUSED} else None
+            ),
+            "result": str(error)[:200],
+        }
+        if layer is not None:
+            result["enforcement_layer"] = layer
+            result["request_disposition"] = (
+                "rejected_before_playwright"
+                if layer == "host_navigation_policy"
+                else "aborted_before_destination"
+            )
+        return result
+    return {
+        "url": url,
+        "outcome": DESTINATION_REACHED,
+        "policy_enforced": False,
+        "destination_request_received": True,
+        "request_disposition": "destination_responded",
+        "result": response[:200],
+    }
+
+
+def containment_evidence_passed(result: dict[str, object], expected_outcome: str) -> bool:
+    """Require the recorded outcome, including explicit policy evidence."""
+    if not result.get("ok") or result.get("outcome") != expected_outcome:
+        return False
+    if expected_outcome == POLICY_REJECTION:
+        return bool(
+            result.get("policy_enforced")
+            and result.get("enforcement_layer")
+            in {"host_navigation_policy", "playwright_origin_filter"}
+            and result.get("destination_request_received") is False
+        )
+    return True
 
 
 def linkedin_dismiss_targets(snapshot: str) -> list[tuple[str, str]]:
@@ -229,7 +299,7 @@ def new_report() -> dict[str, Any]:
         "run_at": datetime.now(UTC).isoformat(),
         "phases": [],
         "pages": [],
-        "private_targets": [],
+        "containment_probes": [],
         "same_session_state_preserved": False,
         "provider_termination": {"failed_cleanly": False, "not_run": True},
         "session_closed": False,
@@ -283,21 +353,34 @@ async def smoke(query: str, linkedin_url: str, api_key: str) -> dict[str, Any]:
                 report["pages"].append(
                     {"name": name, "requested_url": url, **result}
                 )
-            for index, url in enumerate(
+            probes = (
+                ("public_control", "https://example.com/", DESTINATION_REACHED),
+                ("host_scheme_guard", "file:///etc/passwd", POLICY_REJECTION),
+                ("loopback", "http://127.0.0.1/", POLICY_REJECTION),
                 (
-                    "file:///etc/passwd",
-                    "http://127.0.0.1:9/",
+                    "link_local_metadata",
                     "http://169.254.169.254/latest/meta-data/",
+                    POLICY_REJECTION,
+                ),
+                (
+                    "docker_host",
                     "http://host.docker.internal/",
-                )
-            ):
+                    POLICY_REJECTION,
+                ),
+            )
+            for index, (probe_name, url, expected_outcome) in enumerate(probes):
                 result = await run_phase(
-                    f"private_target_{index}",
-                    lambda url=url: blocked_probe(tools["browser_navigate"], url),
+                    f"containment_{index}_{probe_name}",
+                    lambda url=url: containment_probe(tools["browser_navigate"], url),
                     api_key,
                 )
+                result["probe_name"] = probe_name
+                result["expected_outcome"] = expected_outcome
+                result["evidence_passed"] = containment_evidence_passed(
+                    result, expected_outcome
+                )
                 report["phases"].append(result)
-                report["private_targets"].append(result)
+                report["containment_probes"].append(result)
 
             def stop_provider() -> None:
                 nonlocal stopped
@@ -333,10 +416,16 @@ async def smoke(query: str, linkedin_url: str, api_key: str) -> dict[str, Any]:
             and report["same_session_state_preserved"]
             and len(report["pages"]) == 3
             and all(page.get("ok") for page in report["pages"])
-            and len(report["private_targets"]) == 4
+            and len(report["containment_probes"]) == 5
             and all(
-                target.get("ok") and target.get("blocked")
-                for target in report["private_targets"]
+                probe.get("evidence_passed")
+                for probe in report["containment_probes"]
+            )
+            and any(
+                probe.get("enforcement_layer") == "host_navigation_policy"
+                and probe.get("policy_enforced")
+                and probe.get("destination_request_received") is False
+                for probe in report["containment_probes"]
             )
             and report["provider_termination"].get("ok")
             and report["provider_termination"].get("failed_cleanly")
