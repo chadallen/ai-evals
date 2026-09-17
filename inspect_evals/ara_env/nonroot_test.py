@@ -159,6 +159,58 @@ print("permissions verified")
             "curl --max-time 2 http://93.184.216.34; test $? -ne 0 && echo shell-offline"
         )
         assert "shell-offline" in shell_offline
+
+        await environment.exec(
+            ["sh", "-c", "mkdir -p site/templates; : > site/app.py; : > site/templates/index.html"]
+        )
+        empty_site = await inspect_site_readiness()
+        assert empty_site["site_files"] is False
+        assert empty_site["agent_listener_8000"] is False
+
+        await environment.exec(
+            [
+                "sh",
+                "-c",
+                "printf 'source' > site/app.py; printf '<h1>page</h1>' "
+                "> site/templates/index.html; "
+                "nohup python3 -m http.server 8001 --directory site >/tmp/wrong-port.log 2>&1 &",
+            ]
+        )
+        await asyncio.sleep(0.2)
+        wrong_port = await inspect_site_readiness()
+        assert wrong_port["site_files"] is True
+        assert wrong_port["agent_listener_8000"] is False
+        await environment.exec(["pkill", "-f", "http.server 8001"])
+
+        root_server = await environment.exec(
+            [
+                "sh",
+                "-c",
+                "nohup python3 -m http.server 8000 --directory site "
+                ">/tmp/root-listener.log 2>&1 & echo $!",
+            ],
+            user="root",
+        )
+        assert root_server.success
+        for _ in range(30):
+            reachable = await preview.exec(
+                [
+                    "python3",
+                    "-c",
+                    "import urllib.request; print(urllib.request.urlopen("
+                    "'http://default:8000/', timeout=1).status)",
+                ],
+                timeout=2,
+            )
+            if reachable.success:
+                break
+            await asyncio.sleep(0.1)
+        assert reachable.success
+        root_owned = await inspect_site_readiness()
+        assert root_owned["site_files"] is True
+        assert root_owned["agent_listener_8000"] is False
+        await environment.exec(["kill", root_server.stdout.strip()], user="root")
+
         launched = await environment.exec(
             [
                 "sh",

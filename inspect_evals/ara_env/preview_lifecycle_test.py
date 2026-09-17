@@ -76,19 +76,27 @@ def _fixture_projects() -> set[str]:
     }
 
 
-def _eval_command(log_dir: Path) -> list[str]:
-    return [
+def _eval_command(log_dir: Path, *, preserve: bool) -> list[str]:
+    command = [
         str(INSPECT),
         "eval",
         str(FIXTURE.relative_to(ROOT)),
         "--model",
         "mockllm/model",
-        "--no-sandbox-cleanup",
         "--display",
         "none",
         "--log-dir",
         str(log_dir),
+        "--epochs",
+        "1",
+        "--limit",
+        "1",
+        "--max-samples",
+        "1",
     ]
+    if preserve:
+        command.append("--no-sandbox-cleanup")
+    return command
 
 
 def _read_only_log(log_dir: Path) -> EvalLog:
@@ -109,7 +117,7 @@ def test_inspect_preserves_preview_until_explicit_cleanup(tmp_path):
     cleanup: list[str] | None = None
     try:
         first = subprocess.run(
-            _eval_command(tmp_path / "first"),
+            _eval_command(tmp_path / "first", preserve=True),
             cwd=ROOT,
             text=True,
             capture_output=True,
@@ -125,7 +133,7 @@ def test_inspect_preserves_preview_until_explicit_cleanup(tmp_path):
         assert PAGE_MARKER in _wait_for_page()
 
         second = subprocess.run(
-            _eval_command(tmp_path / "second"),
+            _eval_command(tmp_path / "second", preserve=True),
             cwd=ROOT,
             text=True,
             capture_output=True,
@@ -151,3 +159,28 @@ def test_inspect_preserves_preview_until_explicit_cleanup(tmp_path):
     finally:
         if cleanup is not None:
             subprocess.run(cleanup, cwd=ROOT, capture_output=True, timeout=60)
+
+
+@pytest.mark.skipif(
+    os.environ.get("ARA_INSPECT_LIFECYCLE_TEST") != "1",
+    reason="Requires local Docker",
+)
+def test_inspect_normal_cleanup_closes_preview_and_removes_environment(tmp_path):
+    if _port_is_open():
+        pytest.fail("host port 8000 is already in use; clean up the existing preview first")
+    assert not _fixture_projects(), "a preserved lifecycle-test environment already exists"
+
+    result = subprocess.run(
+        _eval_command(tmp_path / "normal", preserve=False),
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        timeout=180,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    log = _read_only_log(tmp_path / "normal")
+    assert log.status == "success"
+    assert log.stats.model_usage == {}
+    _wait_for_closed_port()
+    assert not _fixture_projects()
