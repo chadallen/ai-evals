@@ -251,8 +251,9 @@ choosing a backend.
 This check creates one billed Browser Use browser without calling a solver model. It verifies the
 reviewed MCP tool list, an accessibility snapshot, history state across calls, and records the
 public cookie tester's result. It also checks blocked local and file targets and session cleanup.
-The check stops the live provider session, then verifies that the next MCP call fails within 15
-seconds. It records Google, Bing, and public
+The check stops the live provider session, then polls bounded MCP navigations until they observe the
+shutdown or 15 seconds pass. The report records the attempt count and elapsed time. It also records
+Google, Bing, and public
 LinkedIn access in `scratch/playwright-mcp-results.json`. Every public navigation is followed by an
 inline accessibility snapshot. LinkedIn dismiss controls found in that snapshot are tried before a
 fresh snapshot is classified. Each check has its own timeout, and the report is written even when a

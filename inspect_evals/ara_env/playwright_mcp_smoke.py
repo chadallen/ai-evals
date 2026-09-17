@@ -38,6 +38,8 @@ BLOCK_MARKERS = (
 LINKEDIN_DISMISS_LABELS = ("dismiss", "close", "not now", "×")
 PHASE_TIMEOUT_SECONDS = 35
 TERMINATION_TIMEOUT_SECONDS = 15
+TERMINATION_ATTEMPT_TIMEOUT_SECONDS = 3
+TERMINATION_POLL_INTERVAL_SECONDS = 0.25
 
 
 def access_result(name: str, requested_url: str, response: str) -> dict[str, object]:
@@ -172,30 +174,53 @@ async def persistence_check(tools: dict[str, Any]) -> dict[str, Any]:
 
 
 async def provider_termination_check(
-    tools: dict[str, Any], stop: Callable[[], Any]
+    tools: dict[str, Any],
+    stop: Callable[[], Any],
+    *,
+    timeout: float = TERMINATION_TIMEOUT_SECONDS,
+    attempt_timeout: float = TERMINATION_ATTEMPT_TIMEOUT_SECONDS,
+    poll_interval: float = TERMINATION_POLL_INTERVAL_SECONDS,
 ) -> dict[str, Any]:
-    """Stop the provider, then prove the next MCP call fails within its bound."""
+    """Stop the provider, then wait for MCP calls to observe termination."""
     stop()
     started = time.monotonic()
-    try:
-        response = str(
+    deadline = started + timeout
+    attempts = 0
+    timed_out_attempts = 0
+    while time.monotonic() < deadline:
+        attempts += 1
+        remaining = deadline - time.monotonic()
+        try:
             await asyncio.wait_for(
                 tools["browser_navigate"](
-                    url="https://example.com/?ara_provider_termination_probe=1"
+                    url=(
+                        "https://example.com/"
+                        f"?ara_provider_termination_probe={attempts}"
+                    )
                 ),
-                timeout=TERMINATION_TIMEOUT_SECONDS,
+                timeout=min(attempt_timeout, remaining),
             )
-        )
-    except Exception as error:
-        return {
-            "failed_cleanly": True,
-            "failure": str(error)[:300],
-            "failure_seconds": round(time.monotonic() - started, 3),
-        }
+        except TimeoutError:
+            timed_out_attempts += 1
+        except Exception as error:
+            return {
+                "failed_cleanly": True,
+                "failure": str(error)[:300],
+                "failure_seconds": round(time.monotonic() - started, 3),
+                "attempts": attempts,
+                "timed_out_attempts": timed_out_attempts,
+            }
+
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            await asyncio.sleep(min(poll_interval, remaining))
+
     return {
         "failed_cleanly": False,
-        "result": response[:300],
         "failure_seconds": round(time.monotonic() - started, 3),
+        "attempts": attempts,
+        "timed_out_attempts": timed_out_attempts,
+        "result": "Provider remained reachable until the termination deadline",
     }
 
 
@@ -283,7 +308,7 @@ async def smoke(query: str, linkedin_url: str, api_key: str) -> dict[str, Any]:
                 "provider_termination",
                 lambda: provider_termination_check(tools, stop_provider),
                 api_key,
-                timeout=TERMINATION_TIMEOUT_SECONDS + 5,
+                timeout=TERMINATION_TIMEOUT_SECONDS + 2,
             )
             report["phases"].append(termination)
             report["provider_termination"] = termination

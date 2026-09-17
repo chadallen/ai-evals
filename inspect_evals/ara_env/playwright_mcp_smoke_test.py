@@ -247,7 +247,9 @@ def test_provider_termination_precedes_bounded_tool_failure():
         raise RuntimeError("browser session closed")
 
     result = asyncio.run(
-        provider_termination_check({"browser_navigate": navigate}, stop)
+        provider_termination_check(
+            {"browser_navigate": navigate}, stop, poll_interval=0
+        )
     )
 
     assert result["failed_cleanly"] is True
@@ -257,6 +259,41 @@ def test_provider_termination_precedes_bounded_tool_failure():
             "navigate",
             {"url": "https://example.com/?ara_provider_termination_probe=1"},
         ),
+    ]
+    assert result["attempts"] == 1
+    assert result["timed_out_attempts"] == 0
+
+
+def test_provider_termination_polls_during_delayed_cloud_shutdown():
+    calls = []
+
+    def stop():
+        calls.append("stop")
+
+    async def navigate(**kwargs):
+        calls.append(kwargs["url"])
+        if len(calls) < 4:
+            return "Example Domain"
+        raise RuntimeError("browser session closed")
+
+    result = asyncio.run(
+        provider_termination_check(
+            {"browser_navigate": navigate},
+            stop,
+            timeout=1,
+            attempt_timeout=0.1,
+            poll_interval=0,
+        )
+    )
+
+    assert result["failed_cleanly"] is True
+    assert result["attempts"] == 3
+    assert result["timed_out_attempts"] == 0
+    assert calls == [
+        "stop",
+        "https://example.com/?ara_provider_termination_probe=1",
+        "https://example.com/?ara_provider_termination_probe=2",
+        "https://example.com/?ara_provider_termination_probe=3",
     ]
 
 
