@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import os
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -14,6 +15,11 @@ from inspect_ai.approval._policy import policy_approver
 from inspect_ai.tool import ToolCall, ToolCallView, ToolDef, mcp_connection
 
 from inspect_evals.ara_env import playwright_mcp, playwright_mcp_launcher
+
+
+class NonClosingBytesIO(io.BytesIO):
+    def close(self):
+        pass
 
 
 def test_server_filters_tools_and_keeps_secrets_out_of_arguments(monkeypatch):
@@ -68,7 +74,7 @@ def test_noninteractive_selection_omits_mutating_actions():
             cdp_endpoint="ws://provider.test/session", interactive=False
         )
     assert select.call_args.kwargs["tools"] == list(
-        playwright_mcp.PLAYWRIGHT_READ_ONLY_TOOL_NAMES
+        playwright_mcp.PLAYWRIGHT_NONINTERACTIVE_TOOL_NAMES
     )
 
 
@@ -129,6 +135,96 @@ def test_output_relay_redacts_endpoint_without_changing_page_urls():
     assert "wss://public.test/socket" in output
     assert endpoint not in output
     assert "private-token" not in output
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "javascript:alert(document.domain)",
+        "data:text/html,<h1>hello</h1>",
+        "file:///etc/passwd",
+        "ftp://example.com/file",
+        "https:example.com",
+        "https://",
+        "https://user:password@example.com/private",
+        "https://example.com:invalid/",
+        "https://./",
+        "https://bad_host.example/",
+        "https://example.com\\@attacker.test/",
+        "https://example.com/line\nbreak",
+    ],
+)
+def test_input_relay_rejects_unsafe_navigation_before_server(url):
+    request = {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "tools/call",
+        "params": {"name": "browser_navigate", "arguments": {"url": url}},
+    }
+    source = io.BytesIO((json.dumps(request) + "\n").encode())
+    server_input = NonClosingBytesIO()
+    parent_output = io.BytesIO()
+
+    playwright_mcp_launcher._relay_input(
+        source, server_input, parent_output, threading.Lock()
+    )
+
+    assert server_input.getvalue() == b""
+    response = json.loads(parent_output.getvalue())
+    assert response["id"] == 7
+    assert response["error"]["code"] == -32602
+    assert url not in response["error"]["message"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://example.com",
+        "https://example.com/path?q=1#part",
+        "https://example.com:8443/",
+        "http://127.0.0.1/",
+        "http://[::1]/",
+    ],
+)
+def test_input_relay_forwards_valid_http_navigation(url):
+    request = {
+        "jsonrpc": "2.0",
+        "id": "request-id",
+        "method": "tools/call",
+        "params": {"name": "browser_navigate", "arguments": {"url": url}},
+    }
+    encoded = (json.dumps(request) + "\n").encode()
+    server_input = NonClosingBytesIO()
+
+    playwright_mcp_launcher._relay_input(
+        io.BytesIO(encoded), server_input, io.BytesIO(), threading.Lock()
+    )
+
+    assert server_input.getvalue() == encoded
+
+
+def test_input_relay_applies_same_policy_to_new_tab_url():
+    request = {
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "tools/call",
+        "params": {
+            "name": "browser_tabs",
+            "arguments": {"action": "new", "url": "data:text/html,unsafe"},
+        },
+    }
+    server_input = NonClosingBytesIO()
+    parent_output = io.BytesIO()
+
+    playwright_mcp_launcher._relay_input(
+        io.BytesIO((json.dumps(request) + "\n").encode()),
+        server_input,
+        parent_output,
+        threading.Lock(),
+    )
+
+    assert server_input.getvalue() == b""
+    assert json.loads(parent_output.getvalue())["error"]["code"] == -32602
 
 
 def test_node_dependency_matches_declared_server_version():
@@ -203,6 +299,35 @@ def test_failing_mcp_call_does_not_expose_configured_endpoint(monkeypatch, capfd
     output = "".join(capfd.readouterr())
     assert endpoint not in output
     assert "private-token" not in output
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "arguments"),
+    [
+        ("browser_navigate", {"url": "javascript:alert(1)"}),
+        ("browser_tabs", {"action": "new", "url": "data:text/html,unsafe"}),
+    ],
+)
+def test_actual_mcp_relay_rejects_unsafe_urls_before_playwright(
+    monkeypatch, tool_name, arguments
+):
+    monkeypatch.setenv(playwright_mcp.CDP_ENDPOINT_NAME, "http://127.0.0.1:9")
+    source = playwright_mcp.playwright_browser_tools(tool_timeout=1)
+
+    async def check():
+        if tool_name == "browser_navigate":
+            approve = policy_approver(playwright_mcp.playwright_approval_policies())
+            decision = await approve(
+                "test", ToolCall("id", tool_name, arguments), ToolCallView(), []
+            )
+            assert decision.decision == "approve"
+
+        async with mcp_connection(source):
+            tools = {ToolDef(tool).name: tool for tool in await source.tools()}
+            with pytest.raises(Exception, match="well-formed HTTP or HTTPS"):
+                await tools[tool_name](**arguments)
+
+    asyncio.run(check())
 
 
 EXPECTED_TOOL_SCHEMAS = {

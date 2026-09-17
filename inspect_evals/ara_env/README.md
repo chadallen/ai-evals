@@ -94,8 +94,13 @@ The task retains its explicit training framing; the reusable tools do not impose
 
 ### Human tool approval
 
-`spearphish` automatically permits navigation, back navigation, in-memory snapshots, page search,
-waits, and tab listing. It asks for human approval before clicks, typing, form filling, key presses,
+`spearphish` automatically permits HTTP and HTTPS navigation, back navigation, in-memory snapshots,
+page search, waits, and tab listing. Automatic navigation is an outbound network action: URLs can
+disclose query terms or other model-supplied data to the browser provider and destination site.
+The host launcher rejects malformed URLs, embedded credentials, and every scheme except HTTP and
+HTTPS before the request reaches Playwright. It applies the same check to new-tab URLs.
+
+The task asks for human approval before clicks, typing, form filling, key presses,
 opening or closing or selecting tabs, snapshots that write a file, and `send_email`. Choose approve
 to execute, reject to deny the call, or terminate to stop the sample. The prompt appears in
 Inspect's interactive display or console.

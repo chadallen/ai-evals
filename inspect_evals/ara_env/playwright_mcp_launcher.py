@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import contextlib
 import io
+import ipaddress
+import json
 import os
 import re
 import signal
@@ -66,18 +68,125 @@ def _endpoint_secrets(endpoint: str) -> list[str]:
     return sorted({secret for secret in secrets if secret}, key=len, reverse=True)
 
 
-def _relay_output(source: Any, destination: Any, secrets: list[str]) -> None:
+def _relay_output(
+    source: Any,
+    destination: Any,
+    secrets: list[str],
+    output_lock: threading.Lock | None = None,
+) -> None:
     """Relay one MCP output stream after removing CDP credentials."""
     for line in iter(source.readline, b""):
         text = line.decode("utf-8", errors="replace")
-        destination.write(_redact_values(text, secrets).encode())
-        destination.flush()
+        lock = output_lock or contextlib.nullcontext()
+        with lock:
+            destination.write(_redact_values(text, secrets).encode())
+            destination.flush()
 
 
-def _relay_input(source: Any, destination: Any) -> None:
-    """Relay parent MCP requests until either side closes."""
+def _navigation_error(request: object) -> dict[str, object] | None:
+    """Return an MCP error when a tool call contains an unsafe URL."""
+    if not isinstance(request, dict) or request.get("method") != "tools/call":
+        return None
+    params = request.get("params")
+    if not isinstance(params, dict):
+        return None
+    name = params.get("name")
+    arguments = params.get("arguments")
+    if not isinstance(arguments, dict):
+        return None
+
+    url: object | None = None
+    if name == "browser_navigate":
+        url = arguments.get("url")
+    elif name == "browser_tabs" and arguments.get("action") == "new":
+        # Omitting the optional URL opens a blank tab. A supplied URL must
+        # cross the same boundary as browser_navigate.
+        if "url" not in arguments or arguments["url"] is None:
+            return None
+        url = arguments["url"]
+    else:
+        return None
+
+    if _valid_public_navigation_url(url):
+        return None
+    return {
+        "jsonrpc": "2.0",
+        "id": request.get("id"),
+        "error": {
+            "code": -32602,
+            "message": (
+                "Navigation URL must be a well-formed HTTP or HTTPS URL "
+                "without embedded credentials."
+            ),
+        },
+    }
+
+
+def _valid_public_navigation_url(url: object) -> bool:
+    """Accept browser navigation URLs with a network-safe syntax."""
+    if not isinstance(url, str) or not url or "\\" in url:
+        return False
+    if any(character.isspace() or ord(character) < 0x20 for character in url):
+        return False
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        return False
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return False
+    if not parsed.netloc or not parsed.hostname:
+        return False
+    if parsed.username is not None or parsed.password is not None:
+        return False
+    if port is not None and not 1 <= port <= 65535:
+        return False
+    return _valid_hostname(parsed.hostname)
+
+
+def _valid_hostname(hostname: str) -> bool:
+    """Reject host syntax that browsers may reinterpret inconsistently."""
+    if "%" in hostname:
+        return False
+    try:
+        ascii_hostname = hostname.encode("idna").decode("ascii").rstrip(".")
+    except UnicodeError:
+        return False
+    if not ascii_hostname or len(ascii_hostname) > 253:
+        return False
+    if ":" in ascii_hostname:
+        try:
+            ipaddress.ip_address(ascii_hostname)
+        except ValueError:
+            return False
+        return True
+    return all(
+        1 <= len(label) <= 63
+        and re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", label)
+        for label in ascii_hostname.split(".")
+    )
+
+
+def _relay_input(
+    source: Any,
+    destination: Any,
+    response_destination: Any,
+    output_lock: threading.Lock,
+) -> None:
+    """Relay parent MCP requests after enforcing navigation policy."""
     try:
         for line in iter(source.readline, b""):
+            try:
+                request = json.loads(line)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                request = None
+            error = _navigation_error(request)
+            if error is not None:
+                response = (json.dumps(error, separators=(",", ":")) + "\n").encode()
+                with output_lock:
+                    response_destination.write(response)
+                    response_destination.flush()
+                continue
             destination.write(line)
             destination.flush()
     except (BrokenPipeError, ValueError):
@@ -119,15 +228,16 @@ def _run_server(executable: str, cdp_endpoint: str, source: Mapping[str, str]) -
     assert process.stderr is not None
 
     secrets = _endpoint_secrets(cdp_endpoint)
+    output_lock = threading.Lock()
     input_thread = threading.Thread(
         target=_relay_input,
-        args=(sys.stdin.buffer, process.stdin),
+        args=(sys.stdin.buffer, process.stdin, sys.stdout.buffer, output_lock),
         daemon=True,
     )
     output_threads = [
         threading.Thread(
             target=_relay_output,
-            args=(stream, destination, secrets),
+            args=(stream, destination, secrets, output_lock),
             daemon=True,
         )
         for stream, destination in (

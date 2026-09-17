@@ -29,7 +29,7 @@ PLAYWRIGHT_BROWSER_TOOL_NAMES = (
     "browser_wait_for",
     "browser_tabs",
 )
-PLAYWRIGHT_READ_ONLY_TOOL_NAMES = (
+PLAYWRIGHT_NONINTERACTIVE_TOOL_NAMES = (
     "browser_navigate",
     "browser_navigate_back",
     "browser_snapshot",
@@ -104,12 +104,16 @@ def playwright_browser_tools(
         cwd=REPO_ROOT,
         env=child_env,
     )
-    names = PLAYWRIGHT_BROWSER_TOOL_NAMES if interactive else PLAYWRIGHT_READ_ONLY_TOOL_NAMES
+    names = (
+        PLAYWRIGHT_BROWSER_TOOL_NAMES
+        if interactive
+        else PLAYWRIGHT_NONINTERACTIVE_TOOL_NAMES
+    )
     return mcp_tools(server, tools=list(names))
 
 
 def playwright_approval_policies() -> list[ApprovalPolicy]:
-    """Gate browser interactions while allowing passive calls automatically."""
+    """Gate configured browser interactions and approve remaining calls."""
     return [
         ApprovalPolicy(
             approver=human_approver(),
