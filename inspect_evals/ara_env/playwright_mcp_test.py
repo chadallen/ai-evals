@@ -102,12 +102,12 @@ def test_launcher_strips_credentials_from_playwright_environment(tmp_path):
     assert "PLAYWRIGHT_MCP_ACTION_TIMEOUT" not in env
     assert "PLAYWRIGHT_MCP_NAVIGATION_TIMEOUT" not in env
     assert env["PLAYWRIGHT_MCP_BLOCK_SERVICE_WORKERS"] == "true"
-    assert env["PLAYWRIGHT_MCP_OUTPUT_DIR"] == str(workspace / "downloads")
+    assert env["PLAYWRIGHT_MCP_OUTPUT_DIR"] == str(tmp_path / "downloads")
     assert env["PLAYWRIGHT_MCP_ALLOW_UNRESTRICTED_FILE_ACCESS"] == "false"
     assert env["PLAYWRIGHT_MCP_ISOLATED"] == "true"
     config = json.loads(Path(env["PLAYWRIGHT_MCP_CONFIG"]).read_text())
     assert config["browser"]["contextOptions"]["acceptDownloads"] is False
-    assert config["outputDir"] == str(workspace / "downloads")
+    assert config["outputDir"] == str(tmp_path / "downloads")
     blocked = set(env["PLAYWRIGHT_MCP_BLOCKED_ORIGINS"].split(";"))
     assert blocked == set(playwright_mcp_launcher.PRIVATE_ORIGIN_BLOCKS)
     assert {"localhost", "127.*", "10.*", "169.254.*", "192.168.*"} <= blocked
@@ -520,6 +520,7 @@ def test_owned_session_stops_after_server_exit(
     def run_server(*args):
         workspace = args[-1]
         observed_workspaces.append(workspace)
+        assert list(workspace.iterdir()) == []
         (workspace / "download.bin").write_bytes(b"temporary")
         if isinstance(server_result, BaseException):
             raise server_result
@@ -612,6 +613,7 @@ def test_run_server_confines_child_to_disposable_workspace(monkeypatch, tmp_path
 
     def popen(args, **kwargs):
         captured.update(args=args, **kwargs)
+        assert list(kwargs["cwd"].iterdir()) == []
         return Process()
 
     monkeypatch.setattr(subprocess, "Popen", popen)
@@ -629,7 +631,7 @@ def test_run_server_confines_child_to_disposable_workspace(monkeypatch, tmp_path
     )
     assert captured["cwd"] == workspace
     assert captured["env"]["PLAYWRIGHT_MCP_OUTPUT_DIR"] == str(
-        workspace / "downloads"
+        tmp_path / "downloads"
     )
 
 

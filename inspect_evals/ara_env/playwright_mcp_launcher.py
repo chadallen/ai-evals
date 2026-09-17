@@ -212,8 +212,9 @@ def _relay_input(
 def _mcp_environment(
     source: Mapping[str, str], cdp_endpoint: str, workspace: Path
 ) -> dict[str, str]:
-    output_dir = workspace / "downloads"
-    config_path = workspace / "playwright-mcp-config.json"
+    sample_dir = workspace.parent
+    output_dir = sample_dir / "downloads"
+    config_path = sample_dir / "playwright-mcp-config.json"
     config_path.write_text(
         json.dumps(
             {
@@ -363,7 +364,10 @@ def _main_in_workspace(workspace: Path) -> int:
 def main() -> int:
     """Run one MCP sample in a workspace removed on every normal exit path."""
     with tempfile.TemporaryDirectory(prefix="ara-playwright-mcp-") as path:
-        return _main_in_workspace(_workspace_path(path))
+        sample_dir = _workspace_path(path)
+        workspace = sample_dir / "workspace"
+        workspace.mkdir()
+        return _main_in_workspace(workspace)
 
 
 if __name__ == "__main__":
