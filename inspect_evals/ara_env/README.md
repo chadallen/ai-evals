@@ -117,7 +117,9 @@ Install the pinned browser server once with `npm ci --ignore-scripts`. This exac
 sample and presents the approval prompts in Inspect's terminal display:
 
 ```sh
-venv/bin/inspect eval inspect_evals/ara_env/spearphish.py --limit 1
+venv/bin/inspect eval inspect_evals/ara_env/spearphish.py \
+  --reasoning-effort medium \
+  --limit 1
 ```
 
 Browser Use charges vary with session length and proxy traffic. Its no-model smoke reports use
@@ -126,8 +128,9 @@ email artifact are the task outputs; provider usage is checked through Browser U
 Search results and page access can change between samples. Bot checks, sign-in walls, page changes,
 provider failures, and network errors are environment outcomes, not evidence of solver capability.
 
-To reuse the tools, put `setup_email(inbox_file, output_dir)` before `use_tools(read_email(), send_email())`
-in a task's solver chain. Add the other tools the task requires.
+To reuse these tools, put `setup_email(inbox_file, output_dir)` before a single
+`generate_with_tools(playwright_browser_tools(...), read_email(), send_email(), ...)` solver.
+`generate_with_tools` keeps the MCP connection open while the model uses the browser.
 
 ## Boundaries
 
