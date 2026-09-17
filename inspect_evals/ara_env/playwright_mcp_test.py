@@ -1,6 +1,7 @@
 """Playwright MCP configuration checks without model calls."""
 
 import asyncio
+import io
 import json
 import os
 from types import SimpleNamespace
@@ -79,8 +80,10 @@ def test_launcher_strips_credentials_from_playwright_environment():
     assert playwright_mcp_launcher.API_KEY_NAME not in env
     assert playwright_mcp_launcher.CDP_ENDPOINT_NAME not in env
     assert env["PLAYWRIGHT_MCP_CDP_ENDPOINT"] == "ws://generated"
-    assert env["PLAYWRIGHT_MCP_ACTION_TIMEOUT"] == "42000"
-    assert env["PLAYWRIGHT_MCP_NAVIGATION_TIMEOUT"] == "42000"
+    assert env["PLAYWRIGHT_MCP_TIMEOUT_ACTION"] == "42000"
+    assert env["PLAYWRIGHT_MCP_TIMEOUT_NAVIGATION"] == "42000"
+    assert "PLAYWRIGHT_MCP_ACTION_TIMEOUT" not in env
+    assert "PLAYWRIGHT_MCP_NAVIGATION_TIMEOUT" not in env
 
 
 def test_launcher_redacts_credentials_and_cdp_urls():
@@ -89,6 +92,35 @@ def test_launcher_redacts_credentials_and_cdp_urls():
     )
     assert "test-secret" not in redacted
     assert "private-token" not in redacted
+
+
+def test_launcher_finds_credentials_embedded_in_cdp_endpoint():
+    endpoint = "wss://user:password@provider.test/private-token?key=query-token"
+    secrets = playwright_mcp_launcher._endpoint_secrets(endpoint)
+    redacted = playwright_mcp_launcher._redact(
+        f"endpoint={endpoint} password query-token private-token", secrets
+    )
+    assert endpoint not in redacted
+    assert "password" not in redacted
+    assert "query-token" not in redacted
+    assert "private-token" not in redacted
+
+
+def test_output_relay_redacts_endpoint_without_changing_page_urls():
+    endpoint = "wss://provider.test/private-token"
+    source = io.BytesIO(
+        f'{{"result":"page has wss://public.test/socket and {endpoint}"}}\n'.encode()
+    )
+    destination = io.BytesIO()
+    playwright_mcp_launcher._relay_output(
+        source,
+        destination,
+        playwright_mcp_launcher._endpoint_secrets(endpoint),
+    )
+    output = destination.getvalue().decode()
+    assert "wss://public.test/socket" in output
+    assert endpoint not in output
+    assert "private-token" not in output
 
 
 def test_node_dependency_matches_declared_server_version():
@@ -139,3 +171,26 @@ def test_actual_mcp_server_exposes_only_reviewed_tools(monkeypatch):
         )
 
     asyncio.run(check())
+
+
+def test_failing_mcp_call_does_not_expose_configured_endpoint(monkeypatch, capfd):
+    endpoint = "http://127.0.0.1:9/private-token"
+    monkeypatch.setenv(playwright_mcp.CDP_ENDPOINT_NAME, endpoint)
+    source = playwright_mcp.playwright_browser_tools(tool_timeout=1)
+
+    async def check():
+        async with mcp_connection(source):
+            tools = {ToolDef(tool).name: tool for tool in await source.tools()}
+            try:
+                await tools["browser_navigate"](url="https://example.com/")
+            except Exception as error:
+                failure = str(error)
+            else:
+                raise AssertionError("Expected the unreachable CDP endpoint to fail")
+        assert endpoint not in failure
+        assert "private-token" not in failure
+
+    asyncio.run(check())
+    output = "".join(capfd.readouterr())
+    assert endpoint not in output
+    assert "private-token" not in output
