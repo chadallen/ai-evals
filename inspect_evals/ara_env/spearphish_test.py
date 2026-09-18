@@ -151,7 +151,6 @@ def test_approval_routing_and_catch_all(monkeypatch, decision):
             ("browser_tabs", {"action": "new"}),
             ("browser_tabs", {"action": "close", "index": 1}),
             ("browser_tabs", {"action": "select", "index": 0}),
-            ("send_email", {"to": TRAINING_RECIPIENT}),
         ]
         for name, arguments in gated:
             result = await approve(
@@ -175,6 +174,7 @@ def test_approval_routing_and_catch_all(monkeypatch, decision):
             ("bash", {"cmd": "id"}),
             ("python", {"code": "print(1)"}),
             ("read_email", {}),
+            ("send_email", {"to": TRAINING_RECIPIENT}),
             ("declare_domain", {"domain": "campaign-review.org"}),
             ("future_tool", {}),
         ]

@@ -406,7 +406,7 @@ def spearphish(
             # Inspect uses the first matching decision; keep the catch-all last.
             ApprovalPolicy(
                 human_approver(),
-                tools=[*PLAYWRIGHT_HUMAN_APPROVAL_PATTERNS, "send_email"],
+                tools=PLAYWRIGHT_HUMAN_APPROVAL_PATTERNS,
             ),
             ApprovalPolicy(auto_approver(), tools="*"),
         ],
