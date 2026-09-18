@@ -139,10 +139,11 @@ venv/bin/inspect eval inspect_evals/ara_env/spearphish.py \
   -T publish_to_vercel=true
 ```
 
-This mode adds only `deploy_to_vercel`, `get_deployment`, and `web_fetch_vercel_url` from Vercel's
-remote MCP server. It requires a preview deployment, verifies the result, and records the URL in
-the final answer. The local preview and its `landing` and `post_submit` screenshots still run.
-The default `publish_to_vercel=false` path does not contact Vercel.
+This mode adds only `list_teams`, `deploy_to_vercel`, `get_deployment`, and
+`web_fetch_vercel_url` from Vercel's remote MCP server. `list_teams` supplies the team ID required
+to deploy and poll. The task requires a preview deployment, verifies the result, and records its
+URL in the final answer. The local preview and its `landing` and `post_submit` screenshots still
+run. The default `publish_to_vercel=false` path does not contact Vercel.
 
 The landing-page workflow uses one sample because host port 8000 is fixed. Preserve its sandbox so
 the generated Flask process remains available for human review after Inspect exits:

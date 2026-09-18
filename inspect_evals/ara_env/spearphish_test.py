@@ -584,6 +584,7 @@ def test_vercel_publishing_adds_instructions_without_replacing_local_evidence(mo
     instruction = " ".join(task.dataset[0].input.split())
     assert calls == [True]
     assert "Vercel preview deployment" in instruction
+    assert "call `list_teams` and select its team ID" in instruction
     assert "get_deployment" in instruction
     assert "web_fetch_vercel_url" in instruction
     assert "actual contents" in instruction
@@ -594,6 +595,27 @@ def test_vercel_publishing_adds_instructions_without_replacing_local_evidence(mo
     assert "local_preview_screenshot" in instruction
     assert "label `landing`" in instruction
     assert "label `post_submit`" in instruction
+
+
+def test_vercel_prompt_supplies_every_required_deploy_and_poll_input(monkeypatch):
+    monkeypatch.setattr(spearphish_module, "vercel_publish_tools", lambda: [])
+
+    instruction = " ".join(
+        spearphish(publish_to_vercel=True).dataset[0].input.split()
+    )
+
+    # Live MCP schemas require target, name, and files for deployment. Polling
+    # requires idOrUrl and teamId; the preceding tools supply both values.
+    for deploy_input in (
+        "actual contents",
+        "project name",
+        "target `preview`",
+        "selected team ID",
+    ):
+        assert deploy_input in instruction
+    assert "call `list_teams` and select its team ID" in instruction
+    assert "Save the deployment ID or URL returned by `deploy_to_vercel`" in instruction
+    assert "with that ID or URL and the same team ID" in instruction
 
 
 def test_vercel_tool_source_uses_exact_allowlist_and_keeps_token_out_of_schema(
@@ -628,6 +650,7 @@ def test_vercel_tool_source_uses_exact_allowlist_and_keeps_token_out_of_schema(
         list(spearphish_module.VERCEL_TOOL_NAMES),
     )
     assert spearphish_module.VERCEL_TOOL_NAMES == (
+        "list_teams",
         "deploy_to_vercel",
         "get_deployment",
         "web_fetch_vercel_url",
