@@ -213,6 +213,71 @@ def test_project_ownership_is_verified_before_alias_requests():
     assert requests[0].method == "GET"
 
 
+def test_nested_project_identity_is_accepted():
+    def respond(request):
+        if request.url.path.startswith("/v13/deployments/"):
+            return httpx.Response(
+                200,
+                json={
+                    "project": {"id": "prj_fixed456"},
+                    "readyState": "READY",
+                    "target": None,
+                },
+            )
+        if request.method == "GET":
+            return httpx.Response(404)
+        return httpx.Response(
+            200,
+            json={"alias": "benefits-review.training.example.org", "uid": "alias_1"},
+        )
+
+    assert _run_tool(respond).startswith("Vercel subdomain assigned:")
+
+
+def test_nested_project_mismatch_is_rejected_before_alias_requests():
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "project": {"id": "prj_someone_else"},
+                "readyState": "READY",
+                "target": None,
+            },
+        )
+
+    with pytest.raises(ToolError, match="configured Vercel project"):
+        _run_tool(respond)
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize(
+    "identity,message",
+    [
+        ({}, "did not include project identity"),
+        (
+            {"projectId": "prj_fixed456", "project": {"id": "prj_other"}},
+            "conflicting project identity",
+        ),
+    ],
+)
+def test_missing_or_conflicting_project_identity_is_rejected(identity, message):
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={**identity, "readyState": "READY", "target": None},
+        )
+
+    with pytest.raises(ToolError, match=message):
+        _run_tool(respond)
+    assert len(requests) == 1
+
+
 @pytest.mark.parametrize(
     "status,message",
     [
@@ -291,6 +356,85 @@ def test_assignment_conflict_is_bounded():
 
     with pytest.raises(ToolError, match="conflicts with an existing resource"):
         _run_tool(respond)
+
+
+def test_concurrent_alias_move_is_restored_to_prior_deployment():
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        if request.url.path.startswith("/v13/deployments/"):
+            return httpx.Response(
+                200,
+                json={
+                    "projectId": "prj_fixed456",
+                    "readyState": "READY",
+                    "target": None,
+                },
+            )
+        if request.method == "GET":
+            return httpx.Response(404)
+        if request.url.path == "/v2/deployments/dpl_preview123/aliases":
+            return httpx.Response(
+                200,
+                json={
+                    "alias": "benefits-review.training.example.org",
+                    "oldDeploymentId": "dpl_prior789",
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "alias": "benefits-review.training.example.org",
+                "oldDeploymentId": "dpl_preview123",
+            },
+        )
+
+    with pytest.raises(ToolError, match="prior assignment was restored"):
+        _run_tool(respond)
+
+    assert [request.method for request in requests] == ["GET", "GET", "POST", "POST"]
+    assert requests[-1].url.path == "/v2/deployments/dpl_prior789/aliases"
+    assert dict(requests[-1].url.params) == {"teamId": "team_fixed123"}
+    assert json.loads(requests[-1].content) == {
+        "alias": "benefits-review.training.example.org"
+    }
+
+
+def test_failed_alias_restoration_reports_uncertain_state_and_stops():
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        if request.url.path.startswith("/v13/deployments/"):
+            return httpx.Response(
+                200,
+                json={
+                    "projectId": "prj_fixed456",
+                    "readyState": "READY",
+                    "target": None,
+                },
+            )
+        if request.method == "GET":
+            return httpx.Response(404)
+        if request.url.path == "/v2/deployments/dpl_preview123/aliases":
+            return httpx.Response(
+                200,
+                json={
+                    "alias": "benefits-review.training.example.org",
+                    "oldDeploymentId": "dpl_prior789",
+                },
+            )
+        return httpx.Response(500, text="secret upstream restoration body")
+
+    with pytest.raises(ToolError) as caught:
+        _run_tool(respond)
+
+    assert str(caught.value) == (
+        "Vercel moved the alias and restoration failed; alias state is uncertain."
+    )
+    assert "secret" not in str(caught.value)
+    assert len(requests) == 4
 
 
 def test_upstream_error_does_not_expose_credentials_or_body():

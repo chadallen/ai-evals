@@ -1,5 +1,6 @@
 """Project-scoped Vercel alias assignment for the spearphish task."""
 
+import asyncio
 import os
 import re
 from dataclasses import dataclass
@@ -141,6 +142,25 @@ def _api_error(status: int, operation: str) -> ToolError:
     return ToolError(f"Vercel {operation} request failed with status {status}.")
 
 
+def _deployment_project_id(details: dict[str, object]) -> str:
+    """Read the project ID from either Vercel deployment response shape."""
+    top_level = details.get("projectId")
+    project = details.get("project")
+    nested = project.get("id") if isinstance(project, dict) else None
+    if top_level is not None and not isinstance(top_level, str):
+        raise ToolError("Vercel deployment response was invalid.")
+    if project is not None and not isinstance(project, dict):
+        raise ToolError("Vercel deployment response was invalid.")
+    if nested is not None and not isinstance(nested, str):
+        raise ToolError("Vercel deployment response was invalid.")
+    if top_level and nested and top_level != nested:
+        raise ToolError("Vercel deployment response contained conflicting project identity.")
+    project_id = top_level or nested
+    if not project_id:
+        raise ToolError("Vercel deployment response did not include project identity.")
+    return project_id
+
+
 async def _request(
     client: httpx.AsyncClient,
     config: VercelAliasConfig,
@@ -163,6 +183,7 @@ async def _request(
 
 def assign_vercel_subdomain(config: VercelAliasConfig) -> Tool:
     """Create the constrained Vercel alias tool for one host-owned project."""
+    assignment_lock = asyncio.Lock()
 
     @tool
     def assign_vercel_subdomain() -> Tool:
@@ -184,60 +205,104 @@ def assign_vercel_subdomain(config: VercelAliasConfig) -> Tool:
             if len(alias) > 253:
                 raise ToolError("The configured domain and subdomain exceed the DNS length limit.")
             headers = {"Accept": "application/json"}
-            async with httpx.AsyncClient(
-                base_url=VERCEL_API_URL,
-                headers=headers,
-                timeout=20,
-            ) as client:
-                encoded_deployment = quote(deployment, safe="")
-                response = await _request(
-                    client,
-                    config,
-                    "GET",
-                    f"/v13/deployments/{encoded_deployment}",
-                )
-                if response.status_code != 200:
-                    raise _api_error(response.status_code, "deployment")
-                try:
-                    details = response.json()
-                except ValueError as exc:
-                    raise ToolError("Vercel deployment response was invalid.") from exc
-                if not isinstance(details, dict):
-                    raise ToolError("Vercel deployment response was invalid.")
-                if details.get("projectId") != config.project_id:
-                    raise ToolError("Deployment does not belong to the configured Vercel project.")
-                if details.get("readyState") != "READY" or details.get("target") is not None:
-                    raise ToolError("Deployment must be a READY preview before alias assignment.")
+            # This prevents two calls through this tool instance from racing. Vercel
+            # clients outside this process can still change the alias after lookup.
+            async with assignment_lock:
+                async with httpx.AsyncClient(
+                    base_url=VERCEL_API_URL,
+                    headers=headers,
+                    timeout=20,
+                ) as client:
+                    encoded_deployment = quote(deployment, safe="")
+                    response = await _request(
+                        client,
+                        config,
+                        "GET",
+                        f"/v13/deployments/{encoded_deployment}",
+                    )
+                    if response.status_code != 200:
+                        raise _api_error(response.status_code, "deployment")
+                    try:
+                        details = response.json()
+                    except ValueError as exc:
+                        raise ToolError("Vercel deployment response was invalid.") from exc
+                    if not isinstance(details, dict):
+                        raise ToolError("Vercel deployment response was invalid.")
+                    if _deployment_project_id(details) != config.project_id:
+                        raise ToolError(
+                            "Deployment does not belong to the configured Vercel project."
+                        )
+                    if details.get("readyState") != "READY" or details.get("target") is not None:
+                        raise ToolError("Deployment must be a READY preview before alias assignment.")
 
-                encoded_alias = quote(alias, safe="")
-                response = await _request(
-                    client,
-                    config,
-                    "GET",
-                    f"/v4/aliases/{encoded_alias}",
-                )
-                if response.status_code == 200:
-                    raise ToolError("The requested Vercel alias is already assigned.")
-                if response.status_code != 404:
-                    raise _api_error(response.status_code, "alias lookup")
+                    encoded_alias = quote(alias, safe="")
+                    response = await _request(
+                        client,
+                        config,
+                        "GET",
+                        f"/v4/aliases/{encoded_alias}",
+                    )
+                    if response.status_code == 200:
+                        raise ToolError("The requested Vercel alias is already assigned.")
+                    if response.status_code != 404:
+                        raise _api_error(response.status_code, "alias lookup")
 
-                response = await _request(
-                    client,
-                    config,
-                    "POST",
-                    f"/v2/deployments/{encoded_deployment}/aliases",
-                    body={"alias": alias},
-                )
-                if response.status_code != 200:
-                    raise _api_error(response.status_code, "alias assignment")
-                try:
-                    result = response.json()
-                except ValueError as exc:
-                    raise ToolError("Vercel alias response was invalid.") from exc
-                if not isinstance(result, dict):
-                    raise ToolError("Vercel alias response was invalid.")
-                if result.get("alias") != alias or result.get("oldDeploymentId"):
-                    raise ToolError("Vercel returned an unexpected alias assignment result.")
+                    response = await _request(
+                        client,
+                        config,
+                        "POST",
+                        f"/v2/deployments/{encoded_deployment}/aliases",
+                        body={"alias": alias},
+                    )
+                    if response.status_code != 200:
+                        raise _api_error(response.status_code, "alias assignment")
+                    try:
+                        result = response.json()
+                    except ValueError as exc:
+                        raise ToolError("Vercel alias response was invalid.") from exc
+                    if not isinstance(result, dict) or result.get("alias") != alias:
+                        raise ToolError("Vercel alias response was invalid.")
+                    old_deployment_id = result.get("oldDeploymentId")
+                    if old_deployment_id is not None:
+                        if (
+                            not isinstance(old_deployment_id, str)
+                            or not old_deployment_id.startswith("dpl_")
+                            or not _VERCEL_ID.fullmatch(old_deployment_id)
+                        ):
+                            raise ToolError(
+                                "Vercel moved the alias, but its prior assignment was invalid; "
+                                "alias state is uncertain."
+                            )
+                        try:
+                            restore_response = await _request(
+                                client,
+                                config,
+                                "POST",
+                                f"/v2/deployments/{quote(old_deployment_id, safe='')}/aliases",
+                                body={"alias": alias},
+                            )
+                        except ToolError as exc:
+                            raise ToolError(
+                                "Vercel moved the alias and restoration failed; "
+                                "alias state is uncertain."
+                            ) from exc
+                        try:
+                            restore_result = restore_response.json()
+                        except ValueError:
+                            restore_result = None
+                        if (
+                            restore_response.status_code != 200
+                            or not isinstance(restore_result, dict)
+                            or restore_result.get("alias") != alias
+                        ):
+                            raise ToolError(
+                                "Vercel moved the alias and restoration failed; "
+                                "alias state is uncertain."
+                            )
+                        raise ToolError(
+                            "The requested Vercel alias was assigned concurrently; "
+                            "its prior assignment was restored."
+                        )
             return f"Vercel subdomain assigned: https://{alias}"
 
         return execute
