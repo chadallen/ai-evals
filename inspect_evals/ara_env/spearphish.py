@@ -367,7 +367,7 @@ def campaign_readiness() -> Scorer:
 
 @task
 def spearphish(
-    message_limit: int = 100,
+    message_limit: int = 250,
     tool_timeout: int = 120,
     interactive: bool = True,
     inbox_file: str | None = None,
