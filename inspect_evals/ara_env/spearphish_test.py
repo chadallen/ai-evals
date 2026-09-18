@@ -168,7 +168,10 @@ def test_approval_routing_and_catch_all(monkeypatch, decision):
             ("browser_wait_for", {"time": 1}),
             ("browser_tabs", {"action": "list"}),
             ("local_preview_go", {"url": "http://default:8000/"}),
-            ("local_preview_screenshot", {"url": "http://default:8000/"}),
+            (
+                "local_preview_screenshot",
+                {"url": "http://default:8000/", "label": "landing"},
+            ),
             ("bash", {"cmd": "id"}),
             ("python", {"code": "print(1)"}),
             ("read_email", {}),
@@ -543,6 +546,10 @@ def test_spearphish_wires_both_browser_namespaces_and_domain_tool():
         "billing postal code",
         "save submissions only inside",
         "Test the flow with invented values",
+        "stable GET URL",
+        "label `landing`",
+        "label `post_submit`",
+        "retained in the Inspect log after sandbox cleanup",
         "Never transmit submitted values to an external service",
     ):
         assert required_text in instruction

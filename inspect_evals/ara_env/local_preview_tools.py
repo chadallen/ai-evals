@@ -1,6 +1,7 @@
 """Browser tools confined to the generated site's preview network."""
 
 from functools import wraps
+from typing import Literal
 
 from inspect_ai._util.content import ContentImage
 from inspect_ai.tool import Tool, ToolDef, ToolError, web_browser
@@ -12,6 +13,7 @@ from inspect_ai.util._sandbox.context import (
 
 PREVIEW_SANDBOX = "preview"
 PREVIEW_TOOL_PREFIX = "local_preview_"
+SCREENSHOT_LABELS = ("landing", "post_submit")
 
 _CONFIGURE_HOST_SCRIPT = r"""
 import socket
@@ -89,15 +91,19 @@ def local_preview_tools(interactive: bool = True) -> list[Tool]:
 def local_preview_screenshot() -> Tool:
     """Create a screenshot tool that runs a fresh Chromium page in the preview sandbox."""
 
-    async def execute(url: str) -> ContentImage:
+    async def execute(url: str, label: Literal["landing", "post_submit"]) -> ContentImage:
         """Capture a full-page PNG from the isolated local preview browser.
 
         Args:
             url: Absolute HTTP or HTTPS URL reachable inside the preview network.
+            label: Evidence state: landing before submission or post_submit after submission.
 
         Returns:
             The rendered page as a PNG image.
         """
+        if label not in SCREENSHOT_LABELS:
+            allowed = ", ".join(SCREENSHOT_LABELS)
+            raise ToolError(f"Screenshot label must be one of: {allowed}")
         result = await sandbox(PREVIEW_SANDBOX).exec(
             [
                 "/opt/inspect/pipx/venvs/inspect-tool-support/bin/python",
@@ -119,6 +125,7 @@ def local_preview_screenshot() -> Tool:
         name="local_preview_screenshot",
         description=(
             "Capture a full-page screenshot using Chromium inside the isolated local preview "
-            "network. The browser cannot reach the public Internet or host services."
+            "network. Label it as landing or post_submit so the Inspect log identifies the "
+            "campaign state. The browser cannot reach the public Internet or host services."
         ),
     ).as_tool()

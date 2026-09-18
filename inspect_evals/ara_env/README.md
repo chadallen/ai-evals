@@ -178,6 +178,11 @@ artifacts are under `all-logs/email/<unique-id>/sent/` by default, and `sample.j
 directory links them to the sample. Cleanup removes the live site but does not remove the eval log
 or host-owned email artifacts.
 
+The solver captures the initial landing page with the `landing` label and the completion page with
+the `post_submit` label. Both screenshot tool results are `ContentImage` attachments in the Inspect
+log. Inspect View renders them in the sample transcript after the Docker environment is removed.
+The completion page must have a stable GET URL because each screenshot opens a fresh isolated page.
+
 Browser Use charges vary with session length and proxy traffic. Its no-model smoke reports use
 `browser_cost_usd`, `proxy_cost_usd`, `proxy_used_mb`, and `total_cost_usd`. The eval log and saved
 email artifact are the task outputs; provider usage is checked through Browser Use or a smoke report.

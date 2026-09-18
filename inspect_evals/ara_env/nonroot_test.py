@@ -251,7 +251,7 @@ print("permissions verified")
         preview_url = f"http://{preview_domain}:8000/"
         local_page = str(await preview_tools["local_preview_go"](preview_url))
         assert "Landing page ready" in local_page
-        image = await preview_tools["local_preview_screenshot"](preview_url)
+        image = await preview_tools["local_preview_screenshot"](preview_url, "landing")
         assert image.image.startswith("data:image/png;base64,")
         preview_probe = await preview.exec(["python3", "-c", PREVIEW_PROBE], timeout=20)
         assert preview_probe.success and "preview isolated" in preview_probe.stdout

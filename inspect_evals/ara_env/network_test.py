@@ -198,13 +198,17 @@ def test_local_preview_screenshot_returns_image_and_redacts_failure(monkeypatch)
         environment = type("Environment", (), {"exec": success})()
         monkeypatch.setattr(preview_module, "sandbox", lambda name: environment)
         tool = preview_module.local_preview_screenshot()
-        image = await tool("http://default:8000/")
+        image = await tool("http://default:8000/", "landing")
         assert image.image == "data:image/png;base64,cG5n"
         assert success.await_args.args[0] == [
             "/opt/inspect/pipx/venvs/inspect-tool-support/bin/python",
             "/opt/ara/preview_screenshot.py",
             "http://default:8000/",
         ]
+
+        with pytest.raises(Exception, match="landing, post_submit"):
+            await tool("http://default:8000/", "unknown")
+        assert success.await_count == 1
 
         failure = AsyncMock(
             return_value=type(
@@ -219,9 +223,17 @@ def test_local_preview_screenshot_returns_image_and_redacts_failure(monkeypatch)
             lambda name: type("Environment", (), {"exec": failure})(),
         )
         with pytest.raises(Exception, match="browser failed"):
-            await preview_module.local_preview_screenshot()("http://default:8000/")
+            await preview_module.local_preview_screenshot()(
+                "http://default:8000/complete", "post_submit"
+            )
 
     asyncio.run(check())
+
+
+def test_local_preview_screenshot_schema_requires_named_evidence_state():
+    parameters = ToolDef(preview_module.local_preview_screenshot()).parameters
+    assert parameters.required == ["url", "label"]
+    assert parameters.properties["label"].enum == ["landing", "post_submit"]
 
 
 def test_preview_compose_is_internal_and_published_only_on_loopback():
