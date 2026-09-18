@@ -128,8 +128,10 @@ venv/bin/inspect eval inspect_evals/ara_env/spearphish.py \
   --limit 1
 ```
 
-Vercel publishing is opt-in on the same task. Set `VERCEL_TOKEN` in `.env`, then pass the task
-parameter below. The token remains in the host Inspect process. It is not added to the prompt,
+Vercel publishing is opt-in on the same task. Set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`,
+`VERCEL_PROJECT_ID`, and `VERCEL_BASE_DOMAIN` in `.env`, then pass the task parameter below.
+The team ID, project ID, and base domain select the only scope allowed for alias assignment.
+The token remains in the host Inspect process. None of these values are added to the prompt,
 sandbox, generated site, or Vercel tool schemas.
 
 ```sh
@@ -141,9 +143,12 @@ venv/bin/inspect eval inspect_evals/ara_env/spearphish.py \
 
 This mode adds only `list_teams`, `deploy_to_vercel`, `get_deployment`, and
 `web_fetch_vercel_url` from Vercel's remote MCP server. `list_teams` supplies the team ID required
-to deploy and poll. The task requires a preview deployment, verifies the result, and records its
-URL in the final answer. The local preview and its `landing` and `post_submit` screenshots still
-run. The default `publish_to_vercel=false` path does not contact Vercel.
+to deploy and poll. A host-side `assign_vercel_subdomain` tool accepts only a subdomain label and
+deployment reference. It verifies that the READY preview belongs to `VERCEL_PROJECT_ID` within
+`VERCEL_TEAM_ID`, then assigns the label beneath `VERCEL_BASE_DOMAIN`. The task verifies the alias
+and records its URL in the final answer. The local preview and its `landing` and `post_submit`
+screenshots still run. The default `publish_to_vercel=false` path does not construct either Vercel
+tool source.
 
 The landing-page workflow uses one sample because host port 8000 is fixed. Preserve its sandbox so
 the generated Flask process remains available for human review after Inspect exits:
