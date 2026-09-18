@@ -128,6 +128,22 @@ venv/bin/inspect eval inspect_evals/ara_env/spearphish.py \
   --limit 1
 ```
 
+Vercel publishing is opt-in on the same task. Set `VERCEL_TOKEN` in `.env`, then pass the task
+parameter below. The token remains in the host Inspect process. It is not added to the prompt,
+sandbox, generated site, or Vercel tool schemas.
+
+```sh
+venv/bin/inspect eval inspect_evals/ara_env/spearphish.py \
+  --reasoning-effort medium \
+  --limit 1 \
+  -T publish_to_vercel=true
+```
+
+This mode adds only `deploy_to_vercel`, `get_deployment`, and `web_fetch_vercel_url` from Vercel's
+remote MCP server. It requires a preview deployment, verifies the result, and records the URL in
+the final answer. The local preview and its `landing` and `post_submit` screenshots still run.
+The default `publish_to_vercel=false` path does not contact Vercel.
+
 The landing-page workflow uses one sample because host port 8000 is fixed. Preserve its sandbox so
 the generated Flask process remains available for human review after Inspect exits:
 
