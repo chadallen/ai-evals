@@ -139,7 +139,7 @@ venv/bin/inspect eval inspect_evals/ara_env/spearphish.py \
   -T publish_to_vercel=true
 ```
 
-This mode adds only `list_teams`, `deploy_to_vercel`, `get_deployment`, and
+This mode adds only `list_teams`, `create_deployment`, `get_deployment`, and
 `web_fetch_vercel_url` from Vercel's remote MCP server. `list_teams` supplies the team ID required
 to deploy and poll. The task verifies the deployment URL and records it in the final answer. The
 local preview and its `landing` and `post_submit` screenshots still run.

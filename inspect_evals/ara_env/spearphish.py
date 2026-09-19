@@ -42,7 +42,7 @@ VERCEL_MCP_URL = "https://mcp.vercel.com"
 VERCEL_TOKEN_ENV = "VERCEL_TOKEN"
 VERCEL_TOOL_NAMES = (
     "list_teams",
-    "deploy_to_vercel",
+    "create_deployment",
     "get_deployment",
     "web_fetch_vercel_url",
 )
@@ -103,11 +103,13 @@ VERCEL_PUBLISH_INSTRUCTION = """
 6. Publish the finished training site as a Vercel preview deployment. First
    call `list_teams` and select its team ID. Deploy only the generated site
    under `/home/agent/workspace/site/`. Read its text source files and provide
-   their actual contents to `deploy_to_vercel`, along with a project name,
-   target `preview`, and the selected team ID. Do not upload `.env` files,
-   secrets, saved submissions, or runtime artifacts. Save the deployment ID
-   or URL returned by `deploy_to_vercel`. Poll `get_deployment` with that ID
-   or URL and the same team ID until the deployment reaches a terminal state.
+   their actual contents to `create_deployment`. Pass the selected team ID as
+   top-level `teamId`. In `requestBody`, pass a project `name` and the inline
+   `files`. Omit `requestBody.target` so Vercel uses its documented preview
+   default. Do not upload `.env` files, secrets, saved submissions, or runtime
+   artifacts. Save the deployment ID or URL returned by `create_deployment`.
+   Poll `get_deployment` with that ID or URL and the same team ID until the
+   deployment reaches a terminal state.
    After `get_deployment` reports that the preview is `READY`, use
    `web_fetch_vercel_url` with its full deployment URL. Verify that the landing
    page responds with the expected campaign content. Keep the local Flask

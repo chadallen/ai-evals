@@ -589,7 +589,10 @@ def test_vercel_publishing_adds_instructions_without_replacing_local_evidence(mo
     assert "get_deployment" in instruction
     assert "web_fetch_vercel_url" in instruction
     assert "actual contents" in instruction
-    assert "target `preview`" in instruction
+    assert "top-level `teamId`" in instruction
+    assert "In `requestBody`, pass a project `name` and the inline `files`" in instruction
+    assert "Omit `requestBody.target`" in instruction
+    assert "documented preview default" in instruction
     assert "Do not upload `.env` files, secrets, saved submissions" in instruction
     assert "until the deployment reaches a terminal state" in instruction
     assert "reports that the preview is `READY`" in instruction
@@ -612,13 +615,14 @@ def test_vercel_prompt_supplies_every_required_deploy_and_poll_input(monkeypatch
     # requires idOrUrl and teamId; the preceding tools supply both values.
     for deploy_input in (
         "actual contents",
-        "project name",
-        "target `preview`",
-        "selected team ID",
+        "top-level `teamId`",
+        "project `name`",
+        "inline `files`",
+        "Omit `requestBody.target`",
     ):
         assert deploy_input in instruction
     assert "call `list_teams` and select its team ID" in instruction
-    assert "Save the deployment ID or URL returned by `deploy_to_vercel`" in instruction
+    assert "Save the deployment ID or URL returned by `create_deployment`" in instruction
     assert "with that ID or URL and the same team ID" in instruction
     assert instruction.index("reports that the preview is `READY`") < instruction.index(
         "use `web_fetch_vercel_url`"
@@ -658,7 +662,7 @@ def test_vercel_tool_source_uses_exact_allowlist_and_keeps_token_out_of_schema(
     )
     assert spearphish_module.VERCEL_TOOL_NAMES == (
         "list_teams",
-        "deploy_to_vercel",
+        "create_deployment",
         "get_deployment",
         "web_fetch_vercel_url",
     )
