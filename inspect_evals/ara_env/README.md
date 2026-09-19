@@ -128,9 +128,9 @@ venv/bin/inspect eval inspect_evals/ara_env/spearphish.py \
   --limit 1
 ```
 
-Vercel publishing is opt-in on the same task. Set `VERCEL_TOKEN` in `.env`, then pass the task
-parameter below. The token remains in the host Inspect process. It is not added to the prompt,
-sandbox, generated site, or Vercel tool schemas.
+Vercel publishing is opt-in on the same task. Set `VERCEL_TOKEN` and `VERCEL_USER_ID` in `.env`,
+then pass the task parameter below. Both values remain in the host Inspect process. They are not
+added to the prompt, sandbox, generated site, or tool schemas.
 
 ```sh
 venv/bin/inspect eval inspect_evals/ara_env/spearphish.py \
@@ -139,10 +139,13 @@ venv/bin/inspect eval inspect_evals/ara_env/spearphish.py \
   -T publish_to_vercel=true
 ```
 
-This mode adds only `list_teams`, `create_deployment`, `get_deployment`, and
-`web_fetch_vercel_url` from Vercel's remote MCP server. `list_teams` supplies the team ID required
-to deploy and poll. The task verifies the deployment URL and records it in the final answer. The
-local preview and its `landing` and `post_submit` screenshots still run.
+This mode adds `list_teams`, `create_deployment`, `get_deployment`, and `web_fetch_vercel_url` from
+Vercel's remote MCP server. It also adds the host-side `make_vercel_deployment_public` tool. That
+tool accepts only the deployment reference and selected team ID. It verifies that the READY preview
+was created during the current sample by `VERCEL_USER_ID`, then disables Vercel Authentication for
+that preview's project. Generated `vercel.app` URLs are public even when the team default protects
+new projects. The task verifies the public URL and records it in the final answer. The local preview
+and its `landing` and `post_submit` screenshots still run.
 
 Custom-domain aliasing is a separate opt-in. Set `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID`, and
 `VERCEL_BASE_DOMAIN` in `.env`, then also pass `-T assign_vercel_alias=true`. The host-side
