@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from inspect_evals.ara_env.playwright_mcp_smoke import (
+from inspect_evals.agent_sandbox.playwright_mcp_smoke import (
     CONNECTION_REFUSED,
     DESTINATION_REACHED,
     POLICY_REJECTION,
@@ -511,7 +511,7 @@ def test_main_writes_report_when_api_key_is_missing(tmp_path, monkeypatch):
     output = tmp_path / "report.json"
     monkeypatch.delenv("BROWSER_USE_API_KEY", raising=False)
     monkeypatch.setattr(
-        "inspect_evals.ara_env.playwright_mcp_smoke.load_dotenv", lambda *args: None
+        "inspect_evals.agent_sandbox.playwright_mcp_smoke.load_dotenv", lambda *args: None
     )
 
     status = main(["--output", str(output)])

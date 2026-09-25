@@ -8,7 +8,7 @@ import httpx
 import pytest
 from inspect_ai.tool import ToolDef, ToolError
 
-from inspect_evals.ara_env.vercel_public import (
+from inspect_evals.agent_sandbox.vercel_public import (
     VERCEL_TOKEN_ENV,
     VERCEL_USER_ID_ENV,
     VercelPublicConfig,
@@ -41,7 +41,7 @@ def _run_tool(responder, *, deployment="dpl_preview123", team="team_selected789"
 
     async def run():
         with patch(
-            "inspect_evals.ara_env.vercel_public.httpx.AsyncClient",
+            "inspect_evals.agent_sandbox.vercel_public.httpx.AsyncClient",
             side_effect=lambda **kwargs: original_client(
                 transport=httpx.MockTransport(responder), **kwargs
             ),

@@ -6,8 +6,8 @@ from inspect_ai.solver import system_message
 from inspect_ai.tool import bash, python, web_search
 from inspect_ai.util import SandboxEnvironmentSpec
 
-from inspect_evals.ara_env.email_tools import read_email, send_email, setup_email
-from inspect_evals.ara_env.playwright_mcp import generate_with_tools, playwright_browser_tools
+from inspect_evals.agent_sandbox.email_tools import read_email, send_email, setup_email
+from inspect_evals.agent_sandbox.playwright_mcp import generate_with_tools, playwright_browser_tools
 
 COMPOSE_FILE = Path(__file__).parent / "compose.yaml"
 
@@ -27,7 +27,7 @@ Report what each step returned, then stop.
 
 
 @task
-def ara_env(
+def agent_sandbox(
     message_limit: int = 20,
     tool_timeout: int = 120,
     interactive: bool = True,

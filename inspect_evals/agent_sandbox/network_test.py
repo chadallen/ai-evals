@@ -14,8 +14,8 @@ from inspect_ai.util._sandbox.context import (
     sandbox_with_environments_context_var,
 )
 
-from inspect_evals.ara_env import browser_tools, egress_proxy
-from inspect_evals.ara_env import local_preview_tools as preview_module
+from inspect_evals.agent_sandbox import browser_tools, egress_proxy
+from inspect_evals.agent_sandbox import local_preview_tools as preview_module
 
 COMPOSE = Path(__file__).with_name("compose.yaml")
 
@@ -291,18 +291,18 @@ def test_tavily_runs_on_host_with_mocked_http(monkeypatch):
     asyncio.run(check())
 
 
-@pytest.mark.parametrize("factory_name", ["ara_env", "spearphish"])
-def test_task_code_tools_fix_destination(factory_name):
+@pytest.mark.parametrize("module_path,factory_name", [("inspect_evals.agent_sandbox.agent_sandbox", "agent_sandbox"), ("inspect_evals.spearphish.spearphish", "spearphish")])
+def test_task_code_tools_fix_destination(module_path, factory_name):
     from importlib import import_module
     from types import SimpleNamespace
 
     from inspect_ai.solver import TaskState
 
-    factory = getattr(import_module(f"inspect_evals.ara_env.{factory_name}"), factory_name)
+    factory = getattr(import_module(module_path), factory_name)
 
     async def check():
         with patch(
-            f"inspect_evals.ara_env.{factory_name}.playwright_browser_tools",
+            f"{module_path}.playwright_browser_tools",
             return_value=[],
         ):
             task = factory()

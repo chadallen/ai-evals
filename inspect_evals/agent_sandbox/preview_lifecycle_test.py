@@ -2,7 +2,7 @@
 
 Run with:
 ARA_INSPECT_LIFECYCLE_TEST=1 venv/bin/pytest \
-  inspect_evals/ara_env/preview_lifecycle_test.py -s
+  inspect_evals/agent_sandbox/preview_lifecycle_test.py -s
 
 The test runs Inspect with its mock model and removes only the Docker environment it creates.
 """
@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from inspect_ai.log import EvalLog, read_eval_log
 
-from inspect_evals.ara_env.preview_lifecycle_fixture import PAGE_MARKER
+from inspect_evals.agent_sandbox.preview_lifecycle_fixture import PAGE_MARKER
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = Path(__file__).with_name("preview_lifecycle_fixture.py")

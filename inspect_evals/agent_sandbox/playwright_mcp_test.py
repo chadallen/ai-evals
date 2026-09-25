@@ -19,8 +19,8 @@ from inspect_ai.approval import Approval
 from inspect_ai.approval._policy import policy_approver
 from inspect_ai.tool import ToolCall, ToolCallView, ToolDef, mcp_connection
 
-from inspect_evals.ara_env import playwright_mcp, playwright_mcp_launcher
-from inspect_evals.ara_env.playwright_mcp_smoke import (
+from inspect_evals.agent_sandbox import playwright_mcp, playwright_mcp_launcher
+from inspect_evals.agent_sandbox.playwright_mcp_smoke import (
     POLICY_REJECTION,
     containment_evidence_passed,
     containment_probe,

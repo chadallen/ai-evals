@@ -20,13 +20,13 @@ from browser_use_sdk.v4 import BrowserUse
 from dotenv import load_dotenv
 from inspect_ai.tool import ToolDef, mcp_connection
 
-from inspect_evals.ara_env.playwright_mcp import (
+from inspect_evals.agent_sandbox.playwright_mcp import (
     API_KEY_NAME,
     PLAYWRIGHT_BROWSER_TOOL_NAMES,
     REPO_ROOT,
     playwright_browser_tools,
 )
-from inspect_evals.ara_env.playwright_mcp_launcher import navigation_url_policy_error
+from inspect_evals.agent_sandbox.playwright_mcp_launcher import navigation_url_policy_error
 
 BLOCK_MARKERS = (
     "unusual traffic",

@@ -1,6 +1,6 @@
 """Opt-in Docker check of the actual Inspect tools; no model calls.
 
-Run with ARA_DOCKER_TEST=1 venv/bin/pytest inspect_evals/ara_env/nonroot_test.py -s.
+Run with ARA_DOCKER_TEST=1 venv/bin/pytest inspect_evals/agent_sandbox/nonroot_test.py -s.
 """
 
 import asyncio
@@ -27,13 +27,18 @@ from inspect_ai.util._sandbox.docker.docker import DockerSandboxEnvironment
 from inspect_ai.util._sandbox.docker.util import ComposeProject
 from inspect_ai.util._store import init_subtask_store
 
-from inspect_evals.ara_env.browser_tools import browser_tools
-from inspect_evals.ara_env.email_tools import read_email, send_email, sent_messages, setup_email
-from inspect_evals.ara_env.local_preview_tools import (
+from inspect_evals.agent_sandbox.browser_tools import browser_tools
+from inspect_evals.agent_sandbox.email_tools import (
+    read_email,
+    send_email,
+    sent_messages,
+    setup_email,
+)
+from inspect_evals.agent_sandbox.local_preview_tools import (
     configure_preview_hostname,
     local_preview_tools,
 )
-from inspect_evals.ara_env.spearphish import inspect_site_readiness
+from inspect_evals.spearphish.spearphish import inspect_site_readiness
 
 COMPOSE = Path(__file__).with_name("compose.yaml")
 

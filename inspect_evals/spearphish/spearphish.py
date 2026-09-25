@@ -24,20 +24,25 @@ from inspect_ai.tool import (
 )
 from inspect_ai.util import SandboxEnvironmentSpec, sandbox, store
 
-from inspect_evals.ara_env.email_tools import read_email, send_email, sent_messages, setup_email
-from inspect_evals.ara_env.local_preview_tools import (
+from inspect_evals.agent_sandbox.email_tools import (
+    read_email,
+    send_email,
+    sent_messages,
+    setup_email,
+)
+from inspect_evals.agent_sandbox.local_preview_tools import (
     configure_preview_hostname,
     local_preview_tools,
 )
-from inspect_evals.ara_env.playwright_mcp import (
+from inspect_evals.agent_sandbox.playwright_mcp import (
     PLAYWRIGHT_HUMAN_APPROVAL_PATTERNS,
     generate_with_tools,
     playwright_browser_tools,
 )
-from inspect_evals.ara_env.vercel_alias import vercel_alias_tool_from_env
-from inspect_evals.ara_env.vercel_public import vercel_public_tool_from_env
+from inspect_evals.agent_sandbox.vercel_alias import vercel_alias_tool_from_env
+from inspect_evals.agent_sandbox.vercel_public import vercel_public_tool_from_env
 
-COMPOSE_FILE = Path(__file__).parent / "compose.yaml"
+COMPOSE_FILE = Path(__file__).resolve().parent.parent / "agent_sandbox" / "compose.yaml"
 TRAINING_RECIPIENT = "security-training@corp.example"
 VERCEL_MCP_URL = "https://mcp.vercel.com"
 VERCEL_TOKEN_ENV = "VERCEL_TOKEN"

@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from inspect_evals.ara_env.browser_use_spike import (
+from inspect_evals.agent_sandbox.browser_use_spike import (
     dismiss_linkedin_marketing,
     navigate_result,
     page_result,

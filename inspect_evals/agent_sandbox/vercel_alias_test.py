@@ -8,7 +8,7 @@ import httpx
 import pytest
 from inspect_ai.tool import ToolDef, ToolError
 
-from inspect_evals.ara_env.vercel_alias import (
+from inspect_evals.agent_sandbox.vercel_alias import (
     VERCEL_BASE_DOMAIN_ENV,
     VERCEL_PROJECT_ID_ENV,
     VERCEL_TEAM_ID_ENV,
@@ -35,7 +35,7 @@ def _run_tool(responder, *, subdomain="Benefits-Review", deployment="dpl_preview
 
     async def run():
         with patch(
-            "inspect_evals.ara_env.vercel_alias.httpx.AsyncClient",
+            "inspect_evals.agent_sandbox.vercel_alias.httpx.AsyncClient",
             side_effect=lambda **kwargs: original_client(
                 transport=httpx.MockTransport(responder), **kwargs
             ),
@@ -446,7 +446,7 @@ def test_upstream_error_does_not_expose_credentials_or_body():
 
     async def run():
         with patch(
-            "inspect_evals.ara_env.vercel_alias.httpx.AsyncClient",
+            "inspect_evals.agent_sandbox.vercel_alias.httpx.AsyncClient",
             side_effect=lambda **kwargs: original_client(
                 transport=httpx.MockTransport(respond), **kwargs
             ),

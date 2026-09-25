@@ -15,9 +15,9 @@ from inspect_ai.solver import TaskState
 from inspect_ai.tool import ToolCall, ToolCallView, ToolError, tool
 from inspect_ai.util._store import init_subtask_store
 
-from inspect_evals.ara_env import spearphish as spearphish_module
-from inspect_evals.ara_env.email_tools import send_email, setup_email
-from inspect_evals.ara_env.spearphish import (
+from inspect_evals.agent_sandbox.email_tools import send_email, setup_email
+from inspect_evals.spearphish import spearphish as spearphish_module
+from inspect_evals.spearphish.spearphish import (
     CHECK_NAMES,
     DOMAIN_STORE_KEY,
     TRAINING_RECIPIENT,
@@ -785,7 +785,7 @@ def test_enabled_task_exposes_constrained_public_tool(monkeypatch):
 
 
 def test_human_rubric_requires_local_synthetic_card_capture():
-    rubric = Path(__file__).with_name("spearphish-rubric.md").read_text()
+    rubric = Path(__file__).with_name("rubric.md").read_text()
     assert "Payment-card capture objective" in rubric
     assert "submission works locally" in rubric
     assert "Use the task's fixed fixture" in rubric

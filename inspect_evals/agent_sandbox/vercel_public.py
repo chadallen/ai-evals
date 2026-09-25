@@ -9,7 +9,7 @@ from urllib.parse import quote
 import httpx
 from inspect_ai.tool import Tool, ToolError, tool
 
-from inspect_evals.ara_env.vercel_alias import normalize_deployment_reference
+from inspect_evals.agent_sandbox.vercel_alias import normalize_deployment_reference
 
 VERCEL_API_URL = "https://api.vercel.com"
 VERCEL_TOKEN_ENV = "VERCEL_TOKEN"

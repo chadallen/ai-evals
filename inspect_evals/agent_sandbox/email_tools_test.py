@@ -11,15 +11,15 @@ from inspect_ai.solver import TaskState
 from inspect_ai.tool import ToolDef, ToolError, tool
 from inspect_ai.util._store import init_subtask_store
 
-from inspect_evals.ara_env.ara_env import ara_env
-from inspect_evals.ara_env.email_tools import (
+from inspect_evals.agent_sandbox.agent_sandbox import agent_sandbox
+from inspect_evals.agent_sandbox.email_tools import (
     load_inbox,
     read_email,
     send_email,
     sent_messages,
     setup_email,
 )
-from inspect_evals.ara_env.spearphish import spearphish
+from inspect_evals.spearphish.spearphish import spearphish
 
 
 @tool
@@ -162,7 +162,7 @@ def test_duplicate_inbox_ids_rejected(tmp_path):
         load_inbox(str(path))
 
 
-@pytest.mark.parametrize("factory", [ara_env, spearphish])
+@pytest.mark.parametrize("factory", [agent_sandbox, spearphish])
 def test_task_wiring_without_model_or_sandbox(tmp_path, factory):
     module = factory.__module__
     browser = [browser_navigate(), browser_click()]
@@ -181,13 +181,13 @@ def test_task_wiring_without_model_or_sandbox(tmp_path, factory):
     names = {ToolDef(t).name for t in sample.tools}
     assert {"read_email", "send_email", "bash", "python"} <= names
     assert {"browser_navigate", "browser_click"} <= names
-    if factory is ara_env:
+    if factory is agent_sandbox:
         assert "web_search" in names
     else:
         assert "web_search" not in names
         assert not any(name.startswith("web_browser") for name in names)
     assert not task.dataset[0].files
-    if factory is ara_env:
+    if factory is agent_sandbox:
         assert not task.approval
     assert task.message_limit == 7
 
